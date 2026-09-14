@@ -1,6 +1,7 @@
 import { useDebounceFn } from '@vueuse/core';
 import { computed, onScopeDispose, ref, Ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { useSaveQueue } from '@/composables/use-save-queue';
 import { useCollectionsStore } from '@/stores/collections';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useServerStore } from '@/stores/server';
@@ -16,6 +17,14 @@ export interface UseAutoSaveOptions {
 	debounceMs?: number;
 }
 
+/**
+ * Auto-save policy around the generic {@link useSaveQueue}.
+ *
+ * Split of responsibilities:
+ * - `use-save-queue` — serialization, single-slot coalescing, `flush` draining, last-error state.
+ * - this composable — when saves trigger (debounced edits), what one save means (new revision vs.
+ *   coalesced patch), failure recovery (bounded retry backoff) and the user-facing error toast.
+ */
 export function useAutoSave(
 	edits: Ref<Record<string, any>>,
 	saveCallback: (forceNewRevision: boolean) => Promise<void>,
@@ -34,16 +43,34 @@ export function useAutoSave(
 		return v && 'date_updated' in v ? (v.date_updated ?? null) : null;
 	});
 
-	const isSaving = ref(false);
 	const hasOpenRevision = ref(false);
 	const autoSaveError = ref<Error | null>(null);
+	// Set the moment edits arrive (not when the debounce fires) so flush() can bypass the debounce
+	// window and a revert-to-empty can still cancel a queued debounced run.
+	let pendingDebouncedSave = false;
 	let errorNotificationId: string | null = null;
 	let retryTimer: ReturnType<typeof setTimeout> | null = null;
 	let retryAttempt = 0;
-	let pendingSave = false;
-	let activeSave: Promise<void> | null = null;
 
-	const debouncedSave = useDebounceFn(runSave, debounceMs);
+	const queue = useSaveQueue({
+		enabled: () => enabled.value,
+		run: async (forceNewRevision: boolean) => {
+			try {
+				await saveCallback(forceNewRevision);
+				hasOpenRevision.value = true;
+				onSaveSuccess();
+			} catch (error) {
+				onSaveFailure(error instanceof Error ? error : new Error(String(error)));
+				throw error;
+			}
+		},
+	});
+
+	const debouncedSave = useDebounceFn(() => {
+		if (!pendingDebouncedSave) return;
+		pendingDebouncedSave = false;
+		queue.enqueue(nextForceNewRevision());
+	}, debounceMs);
 
 	watch(
 		edits,
@@ -55,12 +82,12 @@ export function useAutoSave(
 			retryAttempt = 0;
 
 			if (Object.keys(newEdits).length === 0) {
-				pendingSave = false;
+				// A still-waiting debounce must not fire; an in-flight save is allowed to finish.
+				pendingDebouncedSave = false;
 				return;
 			}
 
-			pendingSave = true;
-
+			pendingDebouncedSave = true;
 			debouncedSave();
 		},
 		{ deep: true },
@@ -73,42 +100,13 @@ export function useAutoSave(
 
 	return {
 		autoSaveError,
-		isSaving,
+		isSaving: queue.isSaving as Ref<boolean>,
 		resetOpenRevision,
 		flush,
 	};
 
-	async function runSave() {
-		if (!enabled.value) return;
-		if (!pendingSave) return;
-		if (isSaving.value) return; // mutex — skip overlapping saves
-
-		clearRetryTimer();
-
-		const forceNewRevision = !hasOpenRevision.value || isRevisionStale();
-
-		isSaving.value = true;
-		pendingSave = false;
-
-		activeSave = (async () => {
-			try {
-				await saveCallback(forceNewRevision);
-				hasOpenRevision.value = true;
-				autoSaveError.value = null;
-				retryAttempt = 0;
-				dismissErrorNotification();
-			} catch (error) {
-				pendingSave = true;
-				autoSaveError.value = error instanceof Error ? error : new Error(String(error));
-				showErrorNotification();
-				scheduleRetry();
-			} finally {
-				isSaving.value = false;
-				activeSave = null;
-			}
-		})();
-
-		await activeSave;
+	function nextForceNewRevision() {
+		return !hasOpenRevision.value || isRevisionStale();
 	}
 
 	/**
@@ -118,14 +116,24 @@ export function useAutoSave(
 	async function flush(): Promise<boolean> {
 		if (!enabled.value) return true;
 
-		while (pendingSave || activeSave) {
-			if (activeSave) await activeSave;
-			else await runSave();
-
-			if (autoSaveError.value) return false;
+		if (pendingDebouncedSave) {
+			pendingDebouncedSave = false;
+			queue.enqueue(nextForceNewRevision());
 		}
 
-		return true;
+		return queue.flush();
+	}
+
+	function onSaveSuccess() {
+		autoSaveError.value = null;
+		retryAttempt = 0;
+		dismissErrorNotification();
+	}
+
+	function onSaveFailure(error: Error) {
+		autoSaveError.value = error;
+		showErrorNotification();
+		scheduleRetry();
 	}
 
 	function showErrorNotification() {
@@ -158,7 +166,7 @@ export function useAutoSave(
 
 		retryTimer = setTimeout(() => {
 			retryTimer = null;
-			runSave();
+			queue.enqueue(nextForceNewRevision());
 		}, delay);
 	}
 

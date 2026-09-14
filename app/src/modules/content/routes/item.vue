@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { translateShortcut, useCollection, useShortcut } from '@directus/composables';
 import { VERSION_KEY_DRAFT } from '@directus/constants';
-import type { AppCollection, Item, PrimaryKey } from '@directus/types';
+import type { PrimaryKey } from '@directus/types';
 import { sameOrigin } from '@directus/utils/browser';
 import { SplitPanel } from '@directus/vue-split-panel';
 import { useHead } from '@unhead/vue';
@@ -12,6 +12,7 @@ import {
 	nextTick,
 	onBeforeUnmount,
 	provide,
+	type Ref,
 	ref,
 	toRefs,
 	unref,
@@ -43,6 +44,7 @@ import { useCollab } from '@/composables/use-collab';
 import { useEditsGuard } from '@/composables/use-edits-guard';
 import { useFlows } from '@/composables/use-flows';
 import { useItem } from '@/composables/use-item';
+import { useSavePayload } from '@/composables/use-item/lib/use-save-payload';
 import { useCollectionPermissions, useItemPermissions } from '@/composables/use-permissions';
 import { provideRefreshSignal } from '@/composables/use-refresh-signal';
 import { useTemplateData } from '@/composables/use-template-data';
@@ -50,18 +52,17 @@ import { useVersions } from '@/composables/use-versions';
 import { useVisualEditing } from '@/composables/use-visual-editing';
 import { BREAKPOINTS } from '@/constants';
 import { useAutoSave } from '@/modules/content/composables/use-auto-save';
+import { useDraftAutoSwitch } from '@/modules/content/composables/use-draft-auto-switch';
+import { useResolvePrimaryKey } from '@/modules/content/composables/use-resolve-primary-key';
+import { useSingletonDraftEntry } from '@/modules/content/composables/use-singleton-draft-entry';
+import { useVersionGoneHandler } from '@/modules/content/composables/use-version-gone-handler';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useSettingsStore } from '@/stores/settings';
 import { useUserStore } from '@/stores/user';
-import type { ContentVersionMaybeNew, ContentVersionWithType } from '@/types/versions';
-import { getDefaultValuesFromFields } from '@/utils/get-default-values-from-fields';
+import type { ContentVersionWithType } from '@/types/versions';
 import { getPreviewVersionKey } from '@/utils/get-preview-version-key';
 import { getCollectionRoute, getItemRoute } from '@/utils/get-route';
-import { mergeItemData } from '@/utils/merge-item-data';
-import { pushGroupOptionsDown } from '@/utils/push-group-options-down';
 import { renderStringTemplate } from '@/utils/render-string-template';
-import { unexpectedError } from '@/utils/unexpected-error';
-import { validateItem } from '@/utils/validate-item';
 import { PrivateView, PrivateViewHeaderBarActionButton } from '@/views/private';
 import CollabIndicatorHeader from '@/views/private/components/collab/CollabIndicatorHeader.vue';
 import CommentsSidebarDetail from '@/views/private/components/comments-sidebar-detail.vue';
@@ -110,13 +111,20 @@ const isCurrentVersionNew = computed(() => currentVersion.value?.id === '+');
 const form = ref<ComponentPublicInstance>();
 
 const { collection } = toRefs(props);
+
+const primaryKeyParam = computed<PrimaryKey | null>(() => props.primaryKey ?? null);
+
 const revisionsSidebarDetailRef = ref<InstanceType<typeof RevisionsSidebarDetail> | null>(null);
 
 const { info: collectionInfo, defaults, primaryKeyField, isSingleton, accountabilityScope } = useCollection(collection);
 
 const { deleteAllowed: deleteVersionsAllowed } = useCollectionPermissions('directus_versions');
 
-const { primaryKeyParam, resolvedPrimaryKey, existingPrimaryKey, resolvePrimaryKey } = useResolvePrimaryKey();
+const { resolvedPrimaryKey, existingPrimaryKey, bindItem } = useResolvePrimaryKey({
+	collection,
+	primaryKeyParam,
+	isSingleton,
+});
 
 const {
 	readVersionsAllowed,
@@ -158,25 +166,6 @@ async function onVersionDelete(versionId: PrimaryKey) {
 	}
 }
 
-function handleVersionGone(error: unknown) {
-	if (!error || typeof error !== 'object' || !('versionGone' in error)) return false;
-
-	unexpectedError(error, {
-		dismissAction: () => {
-			edits.value = {};
-
-			if (isItemlessVersion.value) {
-				router.push(collectionRoute.value);
-			} else {
-				currentVersion.value = null;
-				refresh();
-			}
-		},
-	});
-
-	return true;
-}
-
 const {
 	isNew,
 	edits,
@@ -199,15 +188,28 @@ const {
 	validationErrors: itemValidationErrors,
 } = useItem(collection, primaryKeyParam, currentVersion, isItemlessVersion);
 
+bindItem(item);
+
 provideRefreshSignal(refreshSignal);
 
-watch(
-	[item, isSingleton, primaryKeyParam],
-	([newItem, newIsSingleton, newPKParam]) => resolvePrimaryKey(newItem, newIsSingleton, newPKParam),
-	{ immediate: true },
-);
+const handleVersionGone = useVersionGoneHandler({
+	edits,
+	isItemlessVersion,
+	setCurrentVersion: (value) => {
+		currentVersion.value = value;
+	},
+	refresh,
+	router,
+	collectionRoute,
+});
 
-watch([isSingleton, resolvedPrimaryKey, collectionInfo], (values) => enterSingletonDraftContext(...values));
+useSingletonDraftEntry({
+	isSingleton,
+	resolvedPrimaryKey,
+	collectionInfo,
+	route,
+	router,
+});
 
 const toolsStore = useAiToolsStore();
 
@@ -241,6 +243,13 @@ const {
 } = permissions;
 
 const { templateData } = useTemplateData(collectionInfo, primaryKeyParam);
+
+const savePayload = useSavePayload({
+	fields,
+	item: item as Ref<Record<string, any> | null>,
+	edits,
+	isNew,
+});
 
 const { confirmLeave, leaveTo } = useEditsGuard(hasEdits, { compareQuery: ['version', 'versionId'] });
 const confirmDelete = ref(false);
@@ -371,7 +380,24 @@ const { updateAllowed: updateVersionsAllowed } = useItemPermissions(
 	computed(() => !currentVersion.value),
 );
 
-const { applyAutoSwitchPendingEdits, canAutoSwitchToDraft, draftVersion } = useAutoSwitchToDraft();
+const shouldShowVersioning = computed(() => {
+	if (!collectionInfo.value?.meta?.versioning) return false;
+	return true;
+});
+
+const { applyAutoSwitchPendingEdits, canAutoSwitchToDraft, draftVersion } = useDraftAutoSwitch({
+	isNew,
+	versioningEnabled: shouldShowVersioning,
+	readVersionsAllowed,
+	createVersionsAllowed,
+	updateVersionsAllowed,
+	currentVersion,
+	hasEdits,
+	versions,
+	edits,
+	router,
+	route,
+});
 
 const {
 	autoSaveError,
@@ -616,7 +642,8 @@ async function saveAndStay() {
 	if (isSavable.value === false) return;
 
 	try {
-		const savedItem: Record<string, any> = await save();
+		const savedItem = (await save()) as Record<string, any> | undefined;
+		if (!savedItem) return;
 
 		if (primaryKeyParam.value === '+') {
 			const newPrimaryKey = savedItem[primaryKeyField.value!.field];
@@ -747,61 +774,6 @@ function revert(values: Record<string, any>) {
 		...edits.value,
 		...values,
 	};
-}
-
-const shouldShowVersioning = computed(() => {
-	if (!collectionInfo.value?.meta?.versioning) return false;
-	return true;
-});
-
-function enterSingletonDraftContext(
-	newIsSingleton: boolean,
-	newResolvedPK: PrimaryKey | null,
-	newCollectionInfo: AppCollection | null,
-) {
-	if (!newCollectionInfo?.meta?.versioning) return;
-	if (!newIsSingleton) return;
-	if (route.query.version) return;
-	if (newResolvedPK !== '+') return;
-
-	router.replace({ ...route, query: { ...route.query, version: VERSION_KEY_DRAFT } });
-}
-
-function useResolvePrimaryKey() {
-	const { primaryKey: primaryKeyParam } = toRefs(props);
-
-	/**
-	 * Collection Item PK: ID or '+' (new item).
-	 * Singleton Item PK: ID or '+' (new item) or `null` (not-yet loaded).
-	 */
-	const resolvedPrimaryKey = ref<PrimaryKey | null>(primaryKeyParam.value);
-	const existingPrimaryKey = computed(() => (resolvedPrimaryKey.value === '+' ? null : resolvedPrimaryKey.value));
-
-	// Reset on collection change to avoid previous singleton’s primary key leaking into the next
-	// collection’s queries.
-	watch(collection, () => {
-		resolvedPrimaryKey.value = primaryKeyParam.value;
-	});
-
-	return {
-		primaryKeyParam,
-		resolvedPrimaryKey,
-		existingPrimaryKey,
-		resolvePrimaryKey,
-	};
-
-	function resolvePrimaryKey(newItem: Item | null, newIsSingleton: boolean, newPrimaryKeyParam: PrimaryKey | null) {
-		if (newIsSingleton) {
-			if (!newItem) return;
-			// Note: After fetching a singleton item, `newItem` will be `{ id: null }` if it hasn’t been created yet.
-
-			const pkField = primaryKeyField.value?.field;
-			resolvedPrimaryKey.value = (pkField ? (newItem[pkField] ?? '+') : '+') as PrimaryKey;
-			return;
-		}
-
-		resolvedPrimaryKey.value = newPrimaryKeyParam;
-	}
 }
 
 function useItemNavigation() {
@@ -950,10 +922,7 @@ function usePublishActions() {
 	}
 
 	function runClientValidation(): boolean {
-		const defaultValues = getDefaultValuesFromFields(fields);
-		const payloadToValidate = mergeItemData(defaultValues.value, item.value ?? {}, edits.value);
-		const fieldsToValidate = pushGroupOptionsDown(fields.value);
-		const clientErrors = validateItem(payloadToValidate, fieldsToValidate, false, false, currentVersion.value);
+		const clientErrors = savePayload.validateForVersion(currentVersion.value);
 		versionValidationErrors.value = clientErrors;
 		return clientErrors.length === 0;
 	}
@@ -984,67 +953,6 @@ function usePublishActions() {
 		onVersionPublishWithoutReview,
 		confirmOverwrite,
 	};
-}
-
-function useAutoSwitchToDraft() {
-	const autoSwitchPendingEdits = ref<Item>({});
-	const draftVersion = computed(() => versions.value.find((version) => version.key === VERSION_KEY_DRAFT)!);
-	const notificationsStore = useNotificationsStore();
-
-	const canAutoSwitchToDraft = computed(() => {
-		if (isNew.value) return false;
-		if (!shouldShowVersioning.value) return false;
-		if (!readVersionsAllowed.value) return false;
-		if (currentVersion.value !== null) return false;
-		if (hasVersionEdits(draftVersion.value)) return false;
-		if (draftVersion.value?.id === '+') return createVersionsAllowed.value;
-		return updateVersionsAllowed.value || createVersionsAllowed.value;
-	});
-
-	watch(hasEdits, async (newHasEdits, oldHasEdits) => {
-		if (!newHasEdits || oldHasEdits) return;
-		if (!canAutoSwitchToDraft.value) return;
-		if (!draftVersion.value) return;
-
-		stashAutoSwitchPendingEdits();
-
-		const navigationFailure = await router.replace({
-			...route,
-			query: { ...route.query, version: VERSION_KEY_DRAFT },
-		});
-
-		if (navigationFailure) return;
-
-		notificationsStore.add({
-			title: t('editing_draft_version'),
-			icon: 'edit',
-		});
-	});
-
-	return {
-		canAutoSwitchToDraft,
-		draftVersion,
-		applyAutoSwitchPendingEdits,
-	};
-
-	function applyAutoSwitchPendingEdits() {
-		if (!Object.keys(autoSwitchPendingEdits.value).length) return null;
-
-		const editsToApply = { ...autoSwitchPendingEdits.value };
-		autoSwitchPendingEdits.value = {};
-
-		return editsToApply;
-	}
-
-	function stashAutoSwitchPendingEdits() {
-		autoSwitchPendingEdits.value = { ...edits.value };
-		edits.value = {};
-	}
-
-	function hasVersionEdits(version: ContentVersionMaybeNew | null) {
-		if (!version || version?.id === '+') return false;
-		return (version as ContentVersionWithType).delta !== null;
-	}
 }
 </script>
 
