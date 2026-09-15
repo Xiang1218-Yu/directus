@@ -10,6 +10,7 @@ import dbMigrate from './commands/database/migrate.js';
 import init from './commands/init/index.js';
 import rolesCreate from './commands/roles/create.js';
 import { apply } from './commands/schema/apply.js';
+import { diff } from './commands/schema/diff.js';
 import { snapshot } from './commands/schema/snapshot.js';
 import keyGenerate from './commands/security/key.js';
 import secretGenerate from './commands/security/secret.js';
@@ -118,6 +119,27 @@ export async function createCli(): Promise<Command> {
 		)
 		.argument('<path>', 'Path to snapshot file')
 		.action(apply);
+
+	schemaCommands
+		.command('diff')
+		.description(
+			'Compare the current database against a snapshot file, or two snapshot files against each other, without applying any changes',
+		)
+		.argument(
+			'<path>',
+			'Path to a snapshot file. Compared against the current database, or used as the base of the comparison when [otherPath] is provided',
+		)
+		.argument('[otherPath]', 'Path to a second snapshot file to compare against. No database connection is required')
+		.addOption(new Option('--format <format>', 'Output format').choices(['text', 'json']).default('text'))
+		.option(
+			'--ignoreRules <value>',
+			`Comma-separated list of collections and or fields to ignore. Format: "products.title,reviews" this will ignore changes to the title field in the products collection and the entire reviews collection`,
+		)
+		.addHelpText(
+			'after',
+			'\nExit codes:\n  0  No differences found\n  1  Differences found\n  2  Snapshot file not found\n  3  Invalid snapshot file\n  4  Unexpected error',
+		)
+		.action(diff);
 
 	await emitter.emitInit('cli.after', { program });
 

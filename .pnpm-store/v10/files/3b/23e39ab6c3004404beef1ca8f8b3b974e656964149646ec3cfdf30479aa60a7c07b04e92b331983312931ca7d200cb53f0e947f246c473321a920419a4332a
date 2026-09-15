@@ -1,0 +1,259 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.pickPackage = pickPackage;
+const fs_1 = require("fs");
+const path_1 = __importDefault(require("path"));
+const crypto_hash_1 = require("@pnpm/crypto.hash");
+const error_1 = require("@pnpm/error");
+const logger_1 = require("@pnpm/logger");
+const graceful_fs_1 = __importDefault(require("@pnpm/graceful-fs"));
+const encode_registry_1 = __importDefault(require("encode-registry"));
+const load_json_file_1 = __importDefault(require("load-json-file"));
+const p_limit_1 = __importDefault(require("p-limit"));
+const path_temp_1 = require("path-temp");
+const pick_1 = __importDefault(require("ramda/src/pick"));
+const semver_1 = __importDefault(require("semver"));
+const rename_overwrite_1 = __importDefault(require("rename-overwrite"));
+const toRaw_js_1 = require("./toRaw.js");
+const pickPackageFromMeta_js_1 = require("./pickPackageFromMeta.js");
+/**
+ * prevents simultaneous operations on the meta.json
+ * otherwise it would cause EPERM exceptions
+ */
+const metafileOperationLimits = {};
+/**
+ * To prevent metafileOperationLimits from holding onto objects in memory on
+ * the order of the number of packages, refcount the limiters and drop them
+ * once they are no longer needed. Callers of this function should ensure
+ * that the limiter is no longer referenced once fn's Promise has resolved.
+ */
+async function runLimited(pkgMirror, fn) {
+    let entry;
+    try {
+        entry = metafileOperationLimits[pkgMirror] ??= { count: 0, limit: (0, p_limit_1.default)(1) };
+        entry.count++;
+        return await fn(entry.limit);
+    }
+    finally {
+        entry.count--;
+        if (entry.count === 0) {
+            metafileOperationLimits[pkgMirror] = undefined;
+        }
+    }
+}
+const pickPackageFromMetaUsingTimeStrict = pickPackageFromMeta_js_1.pickPackageFromMeta.bind(null, pickPackageFromMeta_js_1.pickVersionByVersionRange);
+function pickPackageFromMetaUsingTime(opts, spec, meta) {
+    const pickedPackage = (0, pickPackageFromMeta_js_1.pickPackageFromMeta)(pickPackageFromMeta_js_1.pickVersionByVersionRange, opts, spec, meta);
+    if (pickedPackage)
+        return pickedPackage;
+    return (0, pickPackageFromMeta_js_1.pickPackageFromMeta)(pickPackageFromMeta_js_1.pickLowestVersionByVersionRange, {
+        preferredVersionSelectors: opts.preferredVersionSelectors,
+    }, spec, meta);
+}
+async function pickPackage(ctx, spec, opts) {
+    opts = opts || {};
+    const pickPackageFromMetaBySpec = (opts.publishedBy
+        ? (ctx.strictPublishedByCheck ? pickPackageFromMetaUsingTimeStrict : pickPackageFromMetaUsingTime)
+        : (pickPackageFromMeta_js_1.pickPackageFromMeta.bind(null, opts.pickLowestVersion ? pickPackageFromMeta_js_1.pickLowestVersionByVersionRange : pickPackageFromMeta_js_1.pickVersionByVersionRange))).bind(null, {
+        preferredVersionSelectors: opts.preferredVersionSelectors,
+        publishedBy: opts.publishedBy,
+        publishedByExclude: opts.publishedByExclude,
+    });
+    let _pickPackageFromMeta;
+    if (opts.updateToLatest) {
+        _pickPackageFromMeta = (meta) => {
+            const latestStableSpec = { ...spec, type: 'tag', fetchSpec: 'latest' };
+            const latestStable = pickPackageFromMetaBySpec(latestStableSpec, meta);
+            const current = pickPackageFromMetaBySpec(spec, meta);
+            if (!latestStable)
+                return current;
+            if (!current)
+                return latestStable;
+            if (semver_1.default.lt(latestStable.version, current.version))
+                return current;
+            return latestStable;
+        };
+    }
+    else {
+        _pickPackageFromMeta = pickPackageFromMetaBySpec.bind(null, spec);
+    }
+    validatePackageName(spec.name);
+    const cachedMeta = ctx.metaCache.get(spec.name);
+    if (cachedMeta != null) {
+        return {
+            meta: cachedMeta,
+            pickedPackage: _pickPackageFromMeta(cachedMeta),
+        };
+    }
+    const registryName = (0, encode_registry_1.default)(opts.registry);
+    const pkgMirror = path_1.default.join(ctx.cacheDir, ctx.metaDir, registryName, `${encodePkgName(spec.name)}.json`);
+    return runLimited(pkgMirror, async (limit) => {
+        let metaCachedInStore;
+        if (ctx.offline === true || ctx.preferOffline === true || opts.pickLowestVersion) {
+            metaCachedInStore = await limit(async () => loadMeta(pkgMirror));
+            if (ctx.offline) {
+                if (metaCachedInStore != null)
+                    return {
+                        meta: metaCachedInStore,
+                        pickedPackage: _pickPackageFromMeta(metaCachedInStore),
+                    };
+                throw new error_1.PnpmError('NO_OFFLINE_META', `Failed to resolve ${(0, toRaw_js_1.toRaw)(spec)} in package mirror ${pkgMirror}`);
+            }
+            if (metaCachedInStore != null) {
+                const pickedPackage = _pickPackageFromMeta(metaCachedInStore);
+                if (pickedPackage) {
+                    return {
+                        meta: metaCachedInStore,
+                        pickedPackage,
+                    };
+                }
+            }
+        }
+        if (!opts.updateToLatest && spec.type === 'version') {
+            metaCachedInStore = metaCachedInStore ?? await limit(async () => loadMeta(pkgMirror));
+            // use the cached meta only if it has the required package version
+            // otherwise it is probably out of date
+            if ((metaCachedInStore?.versions?.[spec.fetchSpec]) != null) {
+                try {
+                    const pickedPackage = _pickPackageFromMeta(metaCachedInStore);
+                    if (pickedPackage) {
+                        return {
+                            meta: metaCachedInStore,
+                            pickedPackage,
+                        };
+                    }
+                }
+                catch (err) {
+                    if (ctx.strictPublishedByCheck) {
+                        throw err;
+                    }
+                }
+            }
+        }
+        if (opts.publishedBy) {
+            metaCachedInStore = metaCachedInStore ?? await limit(async () => loadMeta(pkgMirror));
+            if (metaCachedInStore?.cachedAt && new Date(metaCachedInStore.cachedAt) >= opts.publishedBy) {
+                try {
+                    const pickedPackage = _pickPackageFromMeta(metaCachedInStore);
+                    if (pickedPackage) {
+                        return {
+                            meta: metaCachedInStore,
+                            pickedPackage,
+                        };
+                    }
+                }
+                catch (err) {
+                    if (ctx.strictPublishedByCheck) {
+                        throw err;
+                    }
+                }
+            }
+        }
+        try {
+            let meta = await ctx.fetch(spec.name, opts.registry, opts.authHeaderValue);
+            if (ctx.filterMetadata) {
+                meta = clearMeta(meta);
+            }
+            meta.cachedAt = Date.now();
+            // only save meta to cache, when it is fresh
+            ctx.metaCache.set(spec.name, meta);
+            if (!opts.dryRun) {
+                // We stringify this meta here to avoid saving any mutations that could happen to the meta object.
+                const stringifiedMeta = JSON.stringify(meta);
+                // eslint-disable-next-line @typescript-eslint/no-floating-promises
+                runLimited(pkgMirror, (limit) => limit(async () => {
+                    try {
+                        await saveMeta(pkgMirror, stringifiedMeta);
+                    }
+                    catch (err) { // eslint-disable-line
+                        // We don't care if this file was not written to the cache
+                    }
+                }));
+            }
+            return {
+                meta,
+                pickedPackage: _pickPackageFromMeta(meta),
+            };
+        }
+        catch (err) { // eslint-disable-line
+            err.spec = spec;
+            const meta = await loadMeta(pkgMirror); // TODO: add test for this usecase
+            if (meta == null)
+                throw err;
+            logger_1.logger.error(err, err);
+            logger_1.logger.debug({ message: `Using cached meta from ${pkgMirror}` });
+            return {
+                meta,
+                pickedPackage: _pickPackageFromMeta(meta),
+            };
+        }
+    });
+}
+function clearMeta(pkg) {
+    const versions = {};
+    for (const [version, info] of Object.entries(pkg.versions)) {
+        // The list taken from https://github.com/npm/registry/blob/master/docs/responses/package-metadata.md#abbreviated-version-object
+        // with the addition of 'libc'
+        versions[version] = (0, pick_1.default)([
+            'name',
+            'version',
+            'bin',
+            'directories',
+            'devDependencies',
+            'optionalDependencies',
+            'dependencies',
+            'peerDependencies',
+            'dist',
+            'engines',
+            'peerDependenciesMeta',
+            'cpu',
+            'os',
+            'libc',
+            'deprecated',
+            'bundleDependencies',
+            'bundledDependencies',
+            'hasInstallScript',
+        ], info);
+    }
+    return {
+        name: pkg.name,
+        'dist-tags': pkg['dist-tags'],
+        versions,
+        time: pkg.time,
+        cachedAt: pkg.cachedAt,
+    };
+}
+function encodePkgName(pkgName) {
+    if (pkgName !== pkgName.toLowerCase()) {
+        return `${pkgName}_${(0, crypto_hash_1.createHexHash)(pkgName)}`;
+    }
+    return pkgName;
+}
+async function loadMeta(pkgMirror) {
+    try {
+        return await (0, load_json_file_1.default)(pkgMirror);
+    }
+    catch (err) { // eslint-disable-line
+        return null;
+    }
+}
+const createdDirs = new Set();
+async function saveMeta(pkgMirror, meta) {
+    const dir = path_1.default.dirname(pkgMirror);
+    if (!createdDirs.has(dir)) {
+        await fs_1.promises.mkdir(dir, { recursive: true });
+        createdDirs.add(dir);
+    }
+    const temp = (0, path_temp_1.fastPathTemp)(pkgMirror);
+    await graceful_fs_1.default.writeFile(temp, meta);
+    await (0, rename_overwrite_1.default)(temp, pkgMirror);
+}
+function validatePackageName(pkgName) {
+    if (pkgName.includes('/') && pkgName[0] !== '@') {
+        throw new error_1.PnpmError('INVALID_PACKAGE_NAME', `Package name ${pkgName} is invalid, it should have a @scope`);
+    }
+}
+//# sourceMappingURL=pickPackage.js.map

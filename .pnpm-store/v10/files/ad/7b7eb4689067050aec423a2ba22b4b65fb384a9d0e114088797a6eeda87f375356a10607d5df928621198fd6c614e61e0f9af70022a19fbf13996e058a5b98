@@ -1,0 +1,37 @@
+import { n as PLUGIN_NAME, t as NUXT_CONFIG_KEY } from "./constants-DEnDBOsM.js";
+import "./src-X7BiPJ-v.js";
+import { t as vite_default } from "./vite-B7-O2o-W.js";
+import { t as webpack_default } from "./webpack-CKO966NP.js";
+import { addVitePlugin, addWebpackPlugin, defineNuxtModule } from "@nuxt/kit";
+
+//#region src/nuxt.ts
+/**
+* Nuxt plugin
+*
+* @example
+* ```ts
+* // nuxt.config.ts
+* import yaml from "unplugin-yaml/nuxt"
+*
+* export default defineNuxtConfig({
+*   plugins: [yaml()],
+* })
+* ```
+*/
+var nuxt_default = defineNuxtModule({
+	meta: {
+		name: PLUGIN_NAME,
+		configKey: NUXT_CONFIG_KEY
+	},
+	setup(options, nuxt) {
+		nuxt.options.typescript.tsConfig ||= {};
+		nuxt.options.typescript.tsConfig.compilerOptions ||= {};
+		nuxt.options.typescript.tsConfig.compilerOptions.types ||= [];
+		nuxt.options.typescript.tsConfig.compilerOptions.types.push("unplugin-yaml/types");
+		addWebpackPlugin(() => webpack_default(options));
+		addVitePlugin(() => vite_default(options));
+	}
+});
+
+//#endregion
+export { nuxt_default as default };

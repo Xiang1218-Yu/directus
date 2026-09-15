@@ -1,0 +1,86 @@
+import { PnpmError } from '@pnpm/error';
+import { type FetchFromRegistry, type GetAuthHeader, type RetryTimeoutOptions } from '@pnpm/fetching-types';
+import { type PackageMeta } from '@pnpm/registry.types';
+import { type DirectoryResolution, type PreferredVersions, type ResolveResult, type TarballResolution, type WantedDependency, type WorkspacePackages } from '@pnpm/resolver-base';
+import { type DependencyManifest, type Registries, type PinnedVersion, type PackageVersionPolicy } from '@pnpm/types';
+import { type PackageMetaCache, type PickPackageOptions, pickPackage } from './pickPackage.js';
+import { parseBareSpecifier, type RegistryPackageSpec } from './parseBareSpecifier.js';
+import { RegistryResponseError } from './fetch.js';
+import { workspacePrefToNpm } from './workspacePrefToNpm.js';
+export interface NoMatchingVersionErrorOptions {
+    wantedDependency: WantedDependency;
+    packageMeta: PackageMeta;
+    registry: string;
+    immatureVersion?: string;
+    publishedBy?: Date;
+}
+export declare class NoMatchingVersionError extends PnpmError {
+    readonly packageMeta: PackageMeta;
+    readonly immatureVersion?: string;
+    constructor(opts: NoMatchingVersionErrorOptions);
+}
+export { parseBareSpecifier, workspacePrefToNpm, type PackageMeta, type PackageMetaCache, type RegistryPackageSpec, RegistryResponseError, };
+export interface ResolverFactoryOptions {
+    cacheDir: string;
+    fullMetadata?: boolean;
+    filterMetadata?: boolean;
+    offline?: boolean;
+    preferOffline?: boolean;
+    retry?: RetryTimeoutOptions;
+    timeout?: number;
+    registries: Registries;
+    saveWorkspaceProtocol?: boolean | 'rolling';
+    preserveAbsolutePaths?: boolean;
+    strictPublishedByCheck?: boolean;
+    fetchWarnTimeoutMs?: number;
+}
+export interface NpmResolveResult extends ResolveResult {
+    latest: string;
+    manifest: DependencyManifest;
+    resolution: TarballResolution;
+    resolvedVia: 'npm-registry';
+}
+export interface JsrResolveResult extends ResolveResult {
+    alias: string;
+    manifest: DependencyManifest;
+    resolution: TarballResolution;
+    resolvedVia: 'jsr-registry';
+}
+export interface WorkspaceResolveResult extends ResolveResult {
+    manifest: DependencyManifest;
+    resolution: DirectoryResolution;
+    resolvedVia: 'workspace';
+}
+export type NpmResolver = (wantedDependency: WantedDependency, opts: ResolveFromNpmOptions) => Promise<NpmResolveResult | JsrResolveResult | WorkspaceResolveResult | null>;
+export declare function createNpmResolver(fetchFromRegistry: FetchFromRegistry, getAuthHeader: GetAuthHeader, opts: ResolverFactoryOptions): {
+    resolveFromNpm: NpmResolver;
+    resolveFromJsr: NpmResolver;
+    clearCache: () => void;
+};
+export interface ResolveFromNpmContext {
+    pickPackage: (spec: RegistryPackageSpec, opts: PickPackageOptions) => ReturnType<typeof pickPackage>;
+    getAuthHeaderValueByURI: (registry: string) => string | undefined;
+    registries: Registries;
+    saveWorkspaceProtocol?: boolean | 'rolling';
+}
+export type ResolveFromNpmOptions = {
+    alwaysTryWorkspacePackages?: boolean;
+    defaultTag?: string;
+    publishedBy?: Date;
+    publishedByExclude?: PackageVersionPolicy;
+    pickLowestVersion?: boolean;
+    dryRun?: boolean;
+    lockfileDir?: string;
+    preferredVersions?: PreferredVersions;
+    preferWorkspacePackages?: boolean;
+    update?: false | 'compatible' | 'latest';
+    injectWorkspacePackages?: boolean;
+    calcSpecifier?: boolean;
+    pinnedVersion?: PinnedVersion;
+} & ({
+    projectDir?: string;
+    workspacePackages?: undefined;
+} | {
+    projectDir: string;
+    workspacePackages: WorkspacePackages;
+});

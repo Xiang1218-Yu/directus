@@ -1,0 +1,19 @@
+import { type ProjectRootDir, type BaseManifest } from '@pnpm/types';
+export interface Package {
+    manifest: BaseManifest;
+    rootDir: ProjectRootDir;
+}
+export interface PackageNode<Pkg extends Package> {
+    package: Pkg;
+    dependencies: ProjectRootDir[];
+}
+export declare function createPkgGraph<Pkg extends Package>(pkgs: Pkg[], opts?: {
+    ignoreDevDeps?: boolean;
+    linkWorkspacePackages?: boolean;
+}): {
+    graph: Record<ProjectRootDir, PackageNode<Pkg>>;
+    unmatched: Array<{
+        pkgName: string;
+        range: string;
+    }>;
+};

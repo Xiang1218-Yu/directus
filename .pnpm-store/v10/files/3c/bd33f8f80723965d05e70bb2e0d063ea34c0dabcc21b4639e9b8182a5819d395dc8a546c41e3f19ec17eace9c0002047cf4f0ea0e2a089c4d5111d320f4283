@@ -1,0 +1,22 @@
+import "./constants-DEnDBOsM.js";
+import { r as unpluginFactory } from "./src-X7BiPJ-v.js";
+import { createRollupPlugin } from "unplugin";
+
+//#region src/rollup.ts
+/**
+* Rollup plugin
+*
+* @example
+* ```ts
+* // rollup.config.js
+* import yaml from "unplugin-yaml/rollup"
+*
+* export default {
+*   plugins: [yaml()],
+* }
+* ```
+*/
+var rollup_default = createRollupPlugin(unpluginFactory);
+
+//#endregion
+export { rollup_default as default };

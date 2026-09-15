@@ -1,0 +1,11 @@
+export interface RegistryPackageSpec {
+    type: 'tag' | 'version' | 'range';
+    name: string;
+    fetchSpec: string;
+    normalizedBareSpecifier?: string;
+}
+export declare function parseBareSpecifier(bareSpecifier: string, alias: string | undefined, defaultTag: string, registry: string): RegistryPackageSpec | null;
+export interface JsrRegistryPackageSpec extends RegistryPackageSpec {
+    jsrPkgName: string;
+}
+export declare function parseJsrSpecifierToRegistryPackageSpec(rawSpecifier: string, alias: string | undefined, defaultTag: string): JsrRegistryPackageSpec | null;

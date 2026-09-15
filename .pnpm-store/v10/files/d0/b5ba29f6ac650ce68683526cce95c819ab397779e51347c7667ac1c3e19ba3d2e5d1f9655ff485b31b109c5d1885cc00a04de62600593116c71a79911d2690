@@ -1,0 +1,22 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.WorkspaceSpec = void 0;
+const WORKSPACE_PREF_REGEX = /^workspace:((?<alias>[^._/][^@]*)@)?(?<version>.*)$/;
+class WorkspaceSpec {
+    constructor(version, alias) {
+        this.version = version;
+        this.alias = alias;
+    }
+    static parse(pref) {
+        const parts = WORKSPACE_PREF_REGEX.exec(pref);
+        if (!parts?.groups)
+            return null;
+        return new WorkspaceSpec(parts.groups.version, parts.groups.alias);
+    }
+    toString() {
+        const { alias, version } = this;
+        return alias ? `workspace:${alias}@${version}` : `workspace:${version}`;
+    }
+}
+exports.WorkspaceSpec = WorkspaceSpec;
+//# sourceMappingURL=index.js.map

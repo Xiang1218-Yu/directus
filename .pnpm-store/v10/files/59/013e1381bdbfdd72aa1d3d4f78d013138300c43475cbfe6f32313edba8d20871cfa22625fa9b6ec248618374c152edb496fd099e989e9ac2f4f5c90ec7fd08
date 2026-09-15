@@ -1,0 +1,39 @@
+{
+  "name": "cli-nano",
+  "version": "1.4.0",
+  "description": "Small command-line tool similar to `yargs` or `parseArgs` from Node.js to create a CLI accepting positional arguments, flags and options.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "module": "./dist/index.js",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "/dist",
+    "/src"
+  ],
+  "license": "MIT",
+  "author": "Ghislain B.",
+  "homepage": "https://github.com/ghiscoding/cli-nano",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ghiscoding/cli-nano.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ghiscoding/cli-nano/issues"
+  },
+  "engines": {
+    "node": "^20.0.0 || >=22.0.0"
+  },
+  "funding": {
+    "type": "ko_fi",
+    "url": "https://ko-fi.com/ghiscoding"
+  }
+}

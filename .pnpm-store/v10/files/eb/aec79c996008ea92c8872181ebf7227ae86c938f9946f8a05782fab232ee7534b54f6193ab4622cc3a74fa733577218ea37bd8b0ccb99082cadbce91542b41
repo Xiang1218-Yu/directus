@@ -1,0 +1,25 @@
+{
+    "name": "@types/diacritics",
+    "version": "1.3.3",
+    "description": "TypeScript definitions for diacritics",
+    "homepage": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/diacritics",
+    "license": "MIT",
+    "contributors": [
+        {
+            "name": "Oto Ciulis",
+            "githubUsername": "otociulis",
+            "url": "https://github.com/otociulis"
+        }
+    ],
+    "main": "",
+    "types": "index.d.ts",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+        "directory": "types/diacritics"
+    },
+    "scripts": {},
+    "dependencies": {},
+    "typesPublisherContentHash": "1016cda8f413b74e5f8424129abdcb3ed07113ec48fe02fffbe2459979a10825",
+    "typeScriptVersion": "4.5"
+}

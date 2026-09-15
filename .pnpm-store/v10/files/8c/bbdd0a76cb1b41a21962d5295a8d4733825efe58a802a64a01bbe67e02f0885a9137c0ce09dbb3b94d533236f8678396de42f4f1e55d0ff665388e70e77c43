@@ -1,0 +1,16 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.workspacePrefToNpm = workspacePrefToNpm;
+const workspace_spec_parser_1 = require("@pnpm/workspace.spec-parser");
+function workspacePrefToNpm(workspaceBareSpecifier) {
+    const parseResult = workspace_spec_parser_1.WorkspaceSpec.parse(workspaceBareSpecifier);
+    if (parseResult == null) {
+        throw new Error(`Invalid workspace spec: ${workspaceBareSpecifier}`);
+    }
+    const { alias, version } = parseResult;
+    const versionPart = version === '^' || version === '~' ? '*' : version;
+    return alias
+        ? `npm:${alias}@${versionPart}`
+        : versionPart;
+}
+//# sourceMappingURL=workspacePrefToNpm.js.map

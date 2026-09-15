@@ -1,0 +1,121 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.RegistryResponseError = void 0;
+exports.fetchMetadataFromFromRegistry = fetchMetadataFromFromRegistry;
+const url_1 = __importDefault(require("url"));
+const core_loggers_1 = require("@pnpm/core-loggers");
+const logger_1 = require("@pnpm/logger");
+const error_1 = require("@pnpm/error");
+const retry = __importStar(require("@zkochan/retry"));
+// https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string
+// eslint-disable-next-line regexp/no-super-linear-backtracking, regexp/use-ignore-case
+const semverRegex = /(.*)(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
+class RegistryResponseError extends error_1.FetchError {
+    pkgName;
+    constructor(request, response, pkgName) {
+        let hint;
+        if (response.status === 404) {
+            hint = `${pkgName} is not in the npm registry, or you have no permission to fetch it.`;
+            const matched = pkgName.match(semverRegex);
+            if (matched != null) {
+                hint += ` Did you mean ${matched[1]}?`;
+            }
+        }
+        super(request, response, hint);
+        this.pkgName = pkgName;
+    }
+}
+exports.RegistryResponseError = RegistryResponseError;
+async function fetchMetadataFromFromRegistry(fetchOpts, pkgName, registry, authHeaderValue) {
+    const uri = toUri(pkgName, registry);
+    const op = retry.operation(fetchOpts.retry);
+    return new Promise((resolve, reject) => {
+        op.attempt(async (attempt) => {
+            let response;
+            const startTime = Date.now();
+            try {
+                response = await fetchOpts.fetch(uri, {
+                    authHeaderValue,
+                    compress: true,
+                    retry: fetchOpts.retry,
+                    timeout: fetchOpts.timeout,
+                });
+            }
+            catch (error) { // eslint-disable-line
+                reject(new error_1.PnpmError('META_FETCH_FAIL', `GET ${uri}: ${error.message}`, { attempts: attempt }));
+                return;
+            }
+            if (response.status > 400) {
+                const request = {
+                    authHeaderValue,
+                    url: uri,
+                };
+                reject(new RegistryResponseError(request, response, pkgName));
+                return;
+            }
+            // Here we only retry broken JSON responses.
+            // Other HTTP issues are retried by the @pnpm/fetch library
+            try {
+                const json = await response.json();
+                // Check if request took longer than expected
+                const elapsedMs = Date.now() - startTime;
+                if (elapsedMs > fetchOpts.fetchWarnTimeoutMs) {
+                    (0, logger_1.globalWarn)(`Request took ${elapsedMs}ms: ${uri}`);
+                }
+                resolve(json);
+            }
+            catch (error) { // eslint-disable-line
+                const timeout = op.retry(new error_1.PnpmError('BROKEN_METADATA_JSON', error.message));
+                if (timeout === false) {
+                    reject(op.mainError());
+                    return;
+                }
+                core_loggers_1.requestRetryLogger.debug({
+                    attempt,
+                    error,
+                    maxRetries: fetchOpts.retry.retries,
+                    method: 'GET',
+                    timeout,
+                    url: uri,
+                });
+            }
+        });
+    });
+}
+function toUri(pkgName, registry) {
+    let encodedName;
+    if (pkgName[0] === '@') {
+        encodedName = `@${encodeURIComponent(pkgName.slice(1))}`;
+    }
+    else {
+        encodedName = encodeURIComponent(pkgName);
+    }
+    return new url_1.default.URL(encodedName, registry.endsWith('/') ? registry : `${registry}/`).toString();
+}
+//# sourceMappingURL=fetch.js.map

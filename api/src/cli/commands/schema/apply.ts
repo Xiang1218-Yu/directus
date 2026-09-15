@@ -1,37 +1,16 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import type { Snapshot, SnapshotDiff } from '@directus/types';
-import { DiffKind } from '@directus/types';
+import type { Snapshot } from '@directus/types';
 import { parseJSON } from '@directus/utils';
-import chalk from 'chalk';
 import inquirer from 'inquirer';
 import { load as loadYaml } from 'js-yaml';
 import getDatabase, { isInstalled, validateDatabaseConnection } from '../../../database/index.js';
 import { getLicenseManager } from '../../../license/index.js';
 import { useLogger } from '../../../logger/index.js';
-import { isNestedMetaUpdate } from '../../../utils/schema/apply-diff.js';
 import { applySnapshot } from '../../../utils/schema/apply-snapshot.js';
 import { getSnapshotDiff } from '../../../utils/schema/get-snapshot-diff.js';
 import { getSnapshot } from '../../../utils/schema/get-snapshot.js';
-
-export function filterSnapshotDiff(snapshot: SnapshotDiff, filters: string[]): SnapshotDiff {
-	const filterSet = new Set(filters);
-
-	function shouldKeep(item: { collection: string; field?: string }): boolean {
-		if (filterSet.has(item.collection)) return false;
-		if (item.field && filterSet.has(`${item.collection}.${item.field}`)) return false;
-		return true;
-	}
-
-	const filteredDiff: SnapshotDiff = {
-		collections: snapshot.collections.filter((item) => shouldKeep(item)),
-		fields: snapshot.fields.filter((item) => shouldKeep(item)),
-		systemFields: snapshot.systemFields.filter((item) => shouldKeep(item)),
-		relations: snapshot.relations.filter((item) => shouldKeep(item)),
-	};
-
-	return filteredDiff;
-}
+import { filterSnapshotDiff, formatSnapshotDiffSections } from './utils.js';
 
 export async function apply(
 	snapshotPath: string,
@@ -84,115 +63,8 @@ export async function apply(
 		const promptForChanges = !dryRun && options?.yes !== true;
 
 		if (dryRun || promptForChanges) {
-			const sections = [];
-
-			if (snapshotDiff.collections.length > 0) {
-				const lines = [chalk.underline.bold('Collections:')];
-
-				for (const { collection, diff } of snapshotDiff.collections) {
-					if (diff[0]?.kind === DiffKind.EDIT) {
-						lines.push(`  - ${chalk.magenta('Update')} ${collection}`);
-
-						for (const change of diff) {
-							if (change.kind === DiffKind.EDIT) {
-								const path = formatPath(change.path!);
-								lines.push(`    - Set ${path} to ${change.rhs}`);
-							}
-						}
-					} else if (diff[0]?.kind === DiffKind.DELETE) {
-						lines.push(`  - ${chalk.red('Delete')} ${collection}`);
-					} else if (diff[0]?.kind === DiffKind.NEW) {
-						lines.push(`  - ${chalk.green('Create')} ${collection}`);
-					} else if (diff[0]?.kind === DiffKind.ARRAY) {
-						lines.push(`  - ${chalk.magenta('Update')} ${collection}`);
-					}
-				}
-
-				sections.push(lines.join('\n'));
-			}
-
-			if (snapshotDiff.fields.length > 0) {
-				const lines = [chalk.underline.bold('Fields:')];
-
-				for (const { collection, field, diff } of snapshotDiff.fields) {
-					if (diff[0]?.kind === DiffKind.EDIT || isNestedMetaUpdate(diff[0]!)) {
-						lines.push(`  - ${chalk.magenta('Update')} ${collection}.${field}`);
-
-						for (const change of diff) {
-							const path = formatPath(change.path!);
-
-							if (change.kind === DiffKind.EDIT) {
-								lines.push(`    - Set ${path} to ${change.rhs}`);
-							} else if (change.kind === DiffKind.DELETE) {
-								lines.push(`    - Remove ${path}`);
-							} else if (change.kind === DiffKind.NEW) {
-								lines.push(`    - Add ${path} and set it to ${change.rhs}`);
-							}
-						}
-					} else if (diff[0]?.kind === DiffKind.DELETE) {
-						lines.push(`  - ${chalk.red('Delete')} ${collection}.${field}`);
-					} else if (diff[0]?.kind === DiffKind.NEW) {
-						lines.push(`  - ${chalk.green('Create')} ${collection}.${field}`);
-					} else if (diff[0]?.kind === DiffKind.ARRAY) {
-						lines.push(`  - ${chalk.magenta('Update')} ${collection}.${field}`);
-					}
-				}
-
-				sections.push(lines.join('\n'));
-			}
-
-			if (snapshotDiff.systemFields.length > 0) {
-				const lines = [chalk.underline.bold('System Fields:')];
-
-				for (const { collection, field, diff } of snapshotDiff.systemFields) {
-					if (diff[0]?.kind === DiffKind.EDIT) {
-						lines.push(`  - ${chalk.magenta('Update')} ${collection}.${field}`);
-
-						for (const change of diff) {
-							const path = formatPath(change.path!);
-
-							if (change.kind === DiffKind.EDIT) {
-								lines.push(`    - Set ${path} to ${change.rhs}`);
-							} else if (change.kind === DiffKind.DELETE) {
-								lines.push(`    - Remove ${path}`);
-							} else if (change.kind === DiffKind.NEW) {
-								lines.push(`    - Add ${path} and set it to ${change.rhs}`);
-							}
-						}
-					}
-				}
-
-				sections.push(lines.join('\n'));
-			}
-
-			if (snapshotDiff.relations.length > 0) {
-				const lines = [chalk.underline.bold('Relations:')];
-
-				for (const { collection, field, related_collection, diff } of snapshotDiff.relations) {
-					const relatedCollection = formatRelatedCollection(related_collection);
-
-					if (diff[0]?.kind === DiffKind.EDIT) {
-						lines.push(`  - ${chalk.magenta('Update')} ${collection}.${field}${relatedCollection}`);
-
-						for (const change of diff) {
-							if (change.kind === DiffKind.EDIT) {
-								const path = formatPath(change.path!);
-								lines.push(`    - Set ${path} to ${change.rhs}`);
-							}
-						}
-					} else if (diff[0]?.kind === DiffKind.DELETE) {
-						lines.push(`  - ${chalk.red('Delete')} ${collection}.${field}${relatedCollection}`);
-					} else if (diff[0]?.kind === DiffKind.NEW) {
-						lines.push(`  - ${chalk.green('Create')} ${collection}.${field}${relatedCollection}`);
-					} else if (diff[0]?.kind === DiffKind.ARRAY) {
-						lines.push(`  - ${chalk.magenta('Update')} ${collection}.${field}${relatedCollection}`);
-					}
-				}
-
-				sections.push(lines.join('\n'));
-			}
-
-			const message = 'The following changes will be applied:\n\n' + sections.join('\n\n');
+			const message =
+				'The following changes will be applied:\n\n' + formatSnapshotDiffSections(snapshotDiff).join('\n\n');
 
 			if (dryRun) {
 				// eslint-disable-next-line no-console
@@ -227,21 +99,4 @@ export async function apply(
 		database.destroy();
 		process.exit(1);
 	}
-}
-
-export function formatPath(path: any[]): string {
-	if (path.length === 1) {
-		return path.toString();
-	}
-
-	return path.slice(1).join('.');
-}
-
-export function formatRelatedCollection(relatedCollection: string | null): string {
-	// Related collection doesn't exist for a2o relationship types
-	if (relatedCollection) {
-		return ` → ${relatedCollection}`;
-	}
-
-	return '';
 }

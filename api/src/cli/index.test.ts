@@ -7,6 +7,7 @@ import cacheClear from './commands/cache/clear.js';
 import dbMigrate from './commands/database/migrate.js';
 import init from './commands/init/index.js';
 import { apply } from './commands/schema/apply.js';
+import { diff } from './commands/schema/diff.js';
 import usersCreate from './commands/users/create.js';
 import { loadExtensions } from './load-extensions.js';
 import { createCli } from './index.js';
@@ -43,6 +44,10 @@ vi.mock('./commands/init/index.js', () => ({
 
 vi.mock('./commands/schema/apply.js', () => ({
 	apply: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('./commands/schema/diff.js', () => ({
+	diff: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('./commands/users/create.js', () => ({
@@ -169,6 +174,32 @@ describe('createCli', () => {
 				'./snapshot.yaml',
 				expect.objectContaining({
 					dryRun: true,
+				}),
+				expect.anything(),
+			);
+		});
+
+		test('Should parse schema diff arguments and options', async () => {
+			await program.parseAsync(['node', 'directus', 'schema', 'diff', '--format', 'json', './snapshot.yaml']);
+
+			expect(diff).toHaveBeenCalledWith(
+				'./snapshot.yaml',
+				undefined,
+				expect.objectContaining({
+					format: 'json',
+				}),
+				expect.anything(),
+			);
+		});
+
+		test('Should parse schema diff with two snapshot file arguments', async () => {
+			await program.parseAsync(['node', 'directus', 'schema', 'diff', './base.yaml', './target.yaml']);
+
+			expect(diff).toHaveBeenCalledWith(
+				'./base.yaml',
+				'./target.yaml',
+				expect.objectContaining({
+					format: 'text',
 				}),
 				expect.anything(),
 			);

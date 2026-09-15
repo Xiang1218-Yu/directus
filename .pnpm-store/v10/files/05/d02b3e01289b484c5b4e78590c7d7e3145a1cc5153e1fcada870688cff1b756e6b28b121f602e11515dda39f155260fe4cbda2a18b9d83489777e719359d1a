@@ -1,0 +1,2 @@
+import { type Registries } from '@pnpm/types';
+export declare function pickRegistryForPackage(registries: Registries, packageName: string, bareSpecifier?: string): string;

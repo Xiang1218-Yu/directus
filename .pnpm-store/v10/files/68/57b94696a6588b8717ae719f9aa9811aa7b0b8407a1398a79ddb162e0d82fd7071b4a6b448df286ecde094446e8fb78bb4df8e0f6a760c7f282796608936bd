@@ -1,0 +1,4 @@
+import type { ArgsResult, Config } from './interfaces.js';
+export type * from './interfaces.js';
+export declare function parseArgs<C extends Config>(config: C): ArgsResult<C>;
+//# sourceMappingURL=index.d.ts.map

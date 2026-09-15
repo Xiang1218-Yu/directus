@@ -1,0 +1,34 @@
+{
+    "name": "@types/mapbox__mapbox-gl-geocoder",
+    "version": "5.1.0",
+    "description": "TypeScript definitions for @mapbox/mapbox-gl-geocoder",
+    "homepage": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/mapbox__mapbox-gl-geocoder",
+    "license": "MIT",
+    "contributors": [
+        {
+            "name": "makspetrov",
+            "githubUsername": "Nosfit",
+            "url": "https://github.com/Nosfit"
+        },
+        {
+            "name": "Dmytro Gokun",
+            "githubUsername": "dmytro-gokun",
+            "url": "https://github.com/dmytro-gokun"
+        }
+    ],
+    "main": "",
+    "types": "index.d.ts",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+        "directory": "types/mapbox__mapbox-gl-geocoder"
+    },
+    "scripts": {},
+    "dependencies": {
+        "@types/geojson": "*",
+        "@types/mapbox-gl": "*"
+    },
+    "peerDependencies": {},
+    "typesPublisherContentHash": "3e720878783c1433d40f8c57a80c901241731f080fd60464b9fa92f366d37a91",
+    "typeScriptVersion": "5.2"
+}

@@ -1,0 +1,21 @@
+import { r as unpluginFactory } from "./src-X7BiPJ-v.js";
+import { createVitePlugin } from "unplugin";
+
+//#region src/vite.ts
+/**
+* Vite plugin
+*
+* @example
+* ```ts
+* // vite.config.ts
+* import yaml from "unplugin-yaml/vite"
+*
+* export default defineConfig({
+*   plugins: [yaml()],
+* })
+* ```
+*/
+var vite_default = createVitePlugin(unpluginFactory);
+
+//#endregion
+export { vite_default as t };

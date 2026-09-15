@@ -1,0 +1,33 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.whichVersionIsPinned = whichVersionIsPinned;
+const semver_utils_1 = require("semver-utils");
+function whichVersionIsPinned(spec) {
+    const colonIndex = spec.indexOf(':');
+    if (colonIndex !== -1) {
+        spec = spec.substring(colonIndex + 1);
+    }
+    const index = spec.lastIndexOf('@');
+    if (index !== -1) {
+        spec = spec.slice(index + 1);
+    }
+    if (spec === '*')
+        return 'none';
+    const parsedRange = (0, semver_utils_1.parseRange)(spec);
+    if (parsedRange.length !== 1)
+        return undefined;
+    const versionObject = parsedRange[0];
+    switch (versionObject.operator) {
+        case '~': return 'minor';
+        case '^': return 'major';
+        case undefined:
+            if (versionObject.patch)
+                return 'patch';
+            if (versionObject.minor)
+                return 'minor';
+            if (versionObject.major)
+                return 'major';
+    }
+    return undefined;
+}
+//# sourceMappingURL=whichVersionIsPinned.js.map
