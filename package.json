@@ -5,6 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"build": "pnpm --recursive run build",
+		"ci:select": "node scripts/ci-select-checks.mjs",
 		"format": "prettier --cache --check .",
 		"lint": "eslint --cache .",
 		"lint:style": "stylelint '**/*.{css,scss,vue}' --ignore-path .gitignore --cache",

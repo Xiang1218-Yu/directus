@@ -50,6 +50,10 @@ pnpm test:coverage                  # Coverage report
 # Blackbox/E2E tests (requires building first)
 pnpm test:blackbox
 TEST_DB=postgres pnpm test:blackbox  # Against specific database
+
+# CI check selection (mirrors what .github/workflows/check.yml runs for a PR)
+pnpm ci:select            # Show which checks CI would run for the current branch
+pnpm ci:select -- --run   # Run that selection locally
 ```
 
 ## Architecture

@@ -25,17 +25,50 @@ env:
   NODE_OPTIONS: --max_old_space_size=6144
 
 jobs:
+  # Figures out which checks the changed files actually require and fans the
+  # result out to the jobs below. The selection logic lives in
+  # scripts/ci-select-checks.mjs so it can be reproduced locally with
+  # `pnpm ci:select`.
+  changes:
+    name: Detect Changes
+    if: ${{ ! contains(github.event.pull_request.labels.*.name, 'Skip Checks') }}
+    runs-on: ubuntu-latest
+    outputs:
+      global: ${{ steps.select.outputs.global }}
+      lint: ${{ steps.select.outputs.lint }}
+      format: ${{ steps.select.outputs.format }}
+      stylelint: ${{ steps.select.outputs.stylelint }}
+      typecheck: ${{ steps.select.outputs.typecheck }}
+      unit: ${{ steps.select.outputs.unit }}
+      e2e: ${{ steps.select.outputs.e2e }}
+      lint_files: ${{ steps.select.outputs.lint_files }}
+      format_files: ${{ steps.select.outputs.format_files }}
+      style_files: ${{ steps.select.outputs.style_files }}
+      unit_filters: ${{ steps.select.outputs.unit_filters }}
+      typecheck_filters: ${{ steps.select.outputs.typecheck_filters }}
+      build_filters: ${{ steps.select.outputs.build_filters }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          # Full history so the script can diff against the merge base
+          fetch-depth: 0
+
+      - name: Select checks
+        id: select
+        run:
+          node scripts/ci-select-checks.mjs --base "${{ github.event.pull_request.base.sha || github.event.before }}"
+          --head "${{ github.sha }}"
+
   lint:
     name: Lint
-    if: ${{ ! contains(github.event.pull_request.labels.*.name, 'Skip Checks') }}
+    needs: changes
+    if:
+      ${{ ! contains(github.event.pull_request.labels.*.name, 'Skip Checks') && needs.changes.outputs.lint == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-
-      - name: Get changed files
-        id: changed-files
-        uses: tj-actions/changed-files@v47
 
       - name: Prepare
         uses: ./.github/actions/prepare
@@ -44,23 +77,23 @@ jobs:
 
       - name: Run Linter
         run: |
-          pnpm exec eslint \
-            ${{ steps.changed-files.outputs.added_files }} \
-            ${{ steps.changed-files.outputs.modified_files }} \
-            ${{ steps.changed-files.outputs.renamed_files }} \
-            ${{ steps.changed-files.outputs.copied_files }}
+          if [ "${{ needs.changes.outputs.global }}" = "true" ]; then
+            # Shared lint/CI configuration changed — check the whole repo
+            pnpm lint
+          else
+            pnpm exec eslint ${{ needs.changes.outputs.lint_files }}
+          fi
 
   stylelint:
     name: Stylelint
-    if: ${{ ! contains(github.event.pull_request.labels.*.name, 'Skip Checks') }}
+    needs: changes
+    if:
+      ${{ ! contains(github.event.pull_request.labels.*.name, 'Skip Checks') && needs.changes.outputs.stylelint ==
+      'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-
-      - name: Get changed files
-        id: changed-files
-        uses: tj-actions/changed-files@v47
 
       - name: Prepare
         uses: ./.github/actions/prepare
@@ -68,19 +101,23 @@ jobs:
           build: false
 
       - name: Run Stylelinter
-        run: pnpm exec stylelint ${{ steps.changed-files.outputs.all_changed_files }} --allow-empty-input
+        run: |
+          if [ "${{ needs.changes.outputs.global }}" = "true" ]; then
+            pnpm lint:style
+          else
+            pnpm exec stylelint ${{ needs.changes.outputs.style_files }} --allow-empty-input
+          fi
 
   format:
     name: Format
-    if: ${{ ! contains(github.event.pull_request.labels.*.name, 'Skip Checks') }}
+    needs: changes
+    if:
+      ${{ ! contains(github.event.pull_request.labels.*.name, 'Skip Checks') && needs.changes.outputs.format == 'true'
+      }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-
-      - name: Get changed files
-        id: changed-files
-        uses: tj-actions/changed-files@v47
 
       - name: Prepare
         uses: ./.github/actions/prepare
@@ -88,26 +125,62 @@ jobs:
           build: false
 
       - name: Run Formatter
-        run: pnpm exec prettier --check --ignore-unknown ${{ steps.changed-files.outputs.all_changed_files }}
+        run: |
+          if [ "${{ needs.changes.outputs.global }}" = "true" ]; then
+            pnpm format
+          else
+            pnpm exec prettier --check --ignore-unknown ${{ needs.changes.outputs.format_files }}
+          fi
 
-  unit:
-    name: Unit Tests
-    if: ${{ ! contains(github.event.pull_request.labels.*.name, 'Skip Checks') }}
+  typecheck:
+    name: Type Check
+    needs: changes
+    if:
+      ${{ ! contains(github.event.pull_request.labels.*.name, 'Skip Checks') && needs.changes.outputs.typecheck ==
+      'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
 
-        # This currently builds all packages in the repo. Ideally we add build: false here as well
-        # to save minutes building the repo, but that'd require us refactoring the tests to stop
-        # using @directus/* packages within tests
       - name: Prepare
         uses: ./.github/actions/prepare
+        with:
+          filters: ${{ needs.changes.outputs.build_filters }}
+
+      - name: Run Type Checks
+        run: |
+          if [ "${{ needs.changes.outputs.global }}" = "true" ]; then
+            pnpm --recursive run typecheck
+          else
+            pnpm --recursive ${{ needs.changes.outputs.typecheck_filters }} run typecheck
+          fi
+
+  unit:
+    name: Unit Tests
+    needs: changes
+    if:
+      ${{ ! contains(github.event.pull_request.labels.*.name, 'Skip Checks') && needs.changes.outputs.unit == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      # Only the affected workspaces and their dependencies are built. Tests
+      # still use the built @directus/* packages, so the build scope has to
+      # include the dependency closure of the tested workspaces.
+      - name: Prepare
+        uses: ./.github/actions/prepare
+        with:
+          filters: ${{ needs.changes.outputs.build_filters }}
 
       - name: Run Tests
-        run: pnpm test:coverage --passWithNoTests
+        run: |
+          if [ "${{ needs.changes.outputs.global }}" = "true" ]; then
+            pnpm test:coverage --passWithNoTests
+          else
+            pnpm --recursive ${{ needs.changes.outputs.unit_filters }} test:coverage --passWithNoTests
+          fi
 
       - name: Upload coverage to Codecov
         continue-on-error: true
@@ -125,3 +198,30 @@ jobs:
             # Upload to codecov with folder name as flag
             ./codecov upload-coverage -f "$coverage_file" -F "$folder_name" -Z --disable-search
           done
+
+  # Single place that aggregates the (possibly skipped) jobs above, so a PR
+  # has one unambiguous signal and skipped jobs don't count as failures.
+  check-summary:
+    name: Check Summary
+    if: ${{ always() }}
+    needs:
+      - changes
+      - lint
+      - stylelint
+      - format
+      - typecheck
+      - unit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate check results
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+
+          failed=$(echo "$NEEDS" | jq '[to_entries[] | select(.value.result == "failure" or .value.result == "cancelled")] | length')
+
+          if [ "$failed" -gt 0 ]; then
+            echo "::error::One or more checks failed or were cancelled"
+            exit 1
+          fi

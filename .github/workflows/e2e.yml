@@ -1,16 +1,29 @@
 name: e2e Tests
 
 on:
+  # On PRs the multi-database matrix only runs when the change can actually
+  # affect the e2e tests (see the `changes` job below), or when the 'Run E2E'
+  # label forces it via blackbox-pr.yml.
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+
   push:
     branches:
       - main
     paths:
       - api/**
+      - sdk/**
       - tests/**
       - packages/**
       - package.json
       - pnpm-lock.yaml
-      - .github/workflows/blackbox.yml
+      - pnpm-workspace.yaml
+      - .github/workflows/e2e.yml
+
+  # Called by blackbox-pr.yml when the 'Run E2E' label is set
   workflow_call:
 
 permissions:
@@ -21,8 +34,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Same change detection as the Check workflow (scripts/ci-select-checks.mjs,
+  # locally reproducible via `pnpm ci:select`). A change is e2e-relevant when
+  # it touches a workspace the API or the e2e suite depends on, the lockfile,
+  # root configs or anything in `.github/`.
+  changes:
+    name: Detect Changes
+    if: ${{ ! contains(github.event.pull_request.labels.*.name, 'Skip Checks') }}
+    runs-on: ubuntu-latest
+    outputs:
+      e2e: ${{ steps.select.outputs.e2e }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          # Full history so the script can diff against the merge base
+          fetch-depth: 0
+
+      - name: Select checks
+        id: select
+        run:
+          node scripts/ci-select-checks.mjs --base "${{ github.event.pull_request.base.sha || github.event.before }}"
+          --head "${{ github.sha }}"
+
   db:
     name: ${{ matrix.vendor }} ${{ matrix.sandbox && 'sandbox' || '' }}
+    needs: changes
+    if: ${{ needs.changes.outputs.e2e == 'true' || contains(github.event.pull_request.labels.*.name, 'Run E2E') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:

@@ -5,6 +5,12 @@ inputs:
     description: Build the production bundle of the platform
     required: false
     default: 'true'
+  filters:
+    description:
+      Space-separated pnpm filter selectors to limit the build to (e.g. "--filter=@directus/api..."). Builds everything
+      when empty.
+    required: false
+    default: ''
   registry:
     description: NPM registry to set up for auth
     required: false
@@ -37,4 +43,9 @@ runs:
       env:
         npm_config_workspace_concurrency: 2
         NODE_OPTIONS: --max_old_space_size=6144
-      run: pnpm run build
+      run: |
+        if [ -n "${{ inputs.filters }}" ]; then
+          pnpm --recursive ${{ inputs.filters }} run build
+        else
+          pnpm run build
+        fi
