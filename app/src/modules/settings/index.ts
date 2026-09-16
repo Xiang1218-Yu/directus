@@ -9,6 +9,7 @@ import Extensions from './routes/extensions/extensions.vue';
 import FlowOperationDetail from './routes/flows/components/operation-detail.vue';
 import FlowsDetail from './routes/flows/flow.vue';
 import FlowsOverview from './routes/flows/overview.vue';
+import FlowRunTimeline from './routes/flows/timeline/timeline.vue';
 import License from './routes/license/license.vue';
 import MarketplaceAccount from './routes/marketplace/routes/account/account.vue';
 import MarketplaceExtension from './routes/marketplace/routes/extension/extension.vue';
@@ -254,6 +255,25 @@ export default defineModule({
 							props: true,
 						},
 					],
+				},
+				{
+					name: 'settings-flows-timeline',
+					path: ':primaryKey/runs',
+					component: FlowRunTimeline,
+					props: true,
+					async beforeEnter(to) {
+						const { flows } = useFlowsStore();
+						const existingFlow = flows.find((flow) => flow.id === to.params.primaryKey);
+
+						if (!existingFlow) {
+							return {
+								name: 'settings-not-found',
+								params: { _: to.path.split('/').slice(1) },
+							};
+						}
+
+						return true;
+					},
 				},
 			],
 		},

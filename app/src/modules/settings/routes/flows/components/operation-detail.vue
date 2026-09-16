@@ -43,6 +43,8 @@ const options = ref<Record<string, any>>(props.operation?.options ?? {});
 const operationType = ref<string | null>(props.operation?.type ?? null);
 const operationKey = ref<string | null>(props.operation?.key ?? null);
 const operationName = ref<string | null>(props.operation?.name ?? null);
+const retries = ref<number>(props.operation?.retries ?? 0);
+const retryDelay = ref<number>(props.operation?.retry_delay ?? 100);
 
 const saving = ref(false);
 
@@ -66,6 +68,8 @@ watch(
 		operationType.value = operation.type;
 		operationKey.value = operation.key;
 		operationName.value = operation.name;
+		retries.value = operation.retries ?? 0;
+		retryDelay.value = operation.retry_delay ?? 100;
 	},
 	{ immediate: true, deep: true },
 );
@@ -138,6 +142,8 @@ function saveOperation() {
 		key: operationKey.value || generatedKey.value,
 		type: operationType.value,
 		options: { ...defaultValues, ...options.value },
+		retries: retries.value,
+		retry_delay: retryDelay.value,
 	});
 }
 </script>
@@ -189,6 +195,17 @@ function saveOperation() {
 
 			<VFancySelect v-model="operationType" class="select" :items="displayOperations" />
 
+			<div class="retry-grid">
+				<div class="field">
+					<div class="type-label">{{ $t('operation_retries') }}</div>
+					<VInput v-model.number="retries" type="number" :min="0" :max="25" />
+				</div>
+				<div class="field">
+					<div class="type-label">{{ $t('operation_retry_delay') }}</div>
+					<VInput v-model.number="retryDelay" type="number" :min="0" :step="50" />
+				</div>
+			</div>
+
 			<VNotice v-if="operationType && !selectedOperation" class="not-found" type="danger">
 				{{ $t('operation_not_found', { operation: operationType }) }}
 				<div class="spacer" />
@@ -234,6 +251,13 @@ function saveOperation() {
 
 .type-title,
 .select {
+	margin-block-end: 1.8125rem;
+}
+
+.retry-grid {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 1rem;
 	margin-block-end: 1.8125rem;
 }
 

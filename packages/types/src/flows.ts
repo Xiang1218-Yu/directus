@@ -24,6 +24,8 @@ export interface Operation {
 	options: Record<string, any>;
 	resolve: Operation | null;
 	reject: Operation | null;
+	retries: number;
+	retry_delay: number;
 }
 
 export interface FlowRaw {
@@ -53,6 +55,37 @@ export interface OperationRaw {
 	resolve: string | null;
 	reject: string | null;
 	flow: string;
+	retries: number;
+	retry_delay: number;
 	date_created: string;
 	user_created: string;
+}
+
+export type FlowRunStatus = 'running' | 'success' | 'failed';
+
+export type FlowRunNodeStatus = 'running' | 'success' | 'failed';
+
+export interface FlowRun {
+	id: string;
+	flow: string;
+	trigger: string;
+	status: FlowRunStatus;
+	date_started: string;
+	date_finished: string | null;
+	user_created: string | null;
+}
+
+export interface FlowRunNode {
+	id: string;
+	flow_run: string;
+	operation: string | null;
+	operation_key: string;
+	operation_type: string;
+	attempt: number;
+	status: FlowRunNodeStatus;
+	date_started: string;
+	date_finished: string | null;
+	input_summary: string | null;
+	output_summary: string | null;
+	error: string | null;
 }

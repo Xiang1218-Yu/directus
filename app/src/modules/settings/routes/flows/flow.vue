@@ -634,6 +634,13 @@ function discardAndLeave() {
 
 			<template v-else>
 				<PrivateViewHeaderBarActionButton
+					v-tooltip.bottom="$t('run_timeline')"
+					variant="ghost"
+					icon="timeline"
+					@click="router.push({ name: 'settings-flows-timeline', params: { primaryKey: primaryKey } })"
+				/>
+
+				<PrivateViewHeaderBarActionButton
 					v-tooltip.bottom="$t('delete_flow')"
 					kind="danger"
 					variant="ghost"

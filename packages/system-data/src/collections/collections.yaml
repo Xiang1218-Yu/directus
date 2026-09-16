@@ -103,6 +103,18 @@ data:
   - collection: directus_operations
     note: $t:directus_collection.directus_operations
 
+  - collection: directus_flow_runs
+    icon: timeline
+    note: $t:directus_collection.directus_flow_runs
+    hidden: true
+    accountability: null
+
+  - collection: directus_flow_run_nodes
+    icon: timeline
+    note: $t:directus_collection.directus_flow_run_nodes
+    hidden: true
+    accountability: null
+
   - collection: directus_translations
     note: $t:directus_collection.directus_translations
 

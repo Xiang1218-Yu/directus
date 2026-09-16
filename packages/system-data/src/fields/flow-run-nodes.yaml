@@ -1,0 +1,24 @@
+table: directus_flow_run_nodes
+
+fields:
+  - field: id
+    special:
+      - uuid
+  - field: flow_run
+  - field: operation
+  - field: operation_key
+  - field: operation_type
+  - field: attempt
+  - field: status
+  - field: date_started
+    special:
+      - cast-timestamp
+  - field: date_finished
+    special:
+      - cast-timestamp
+  - field: input_summary
+  - field: output_summary
+  - field: error
+
+indexed:
+  - field: flow_run

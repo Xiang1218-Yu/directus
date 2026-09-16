@@ -28,6 +28,7 @@ import deploymentRouter from './controllers/deployment.js';
 import extensionsRouter from './controllers/extensions.js';
 import fieldsRouter from './controllers/fields.js';
 import filesRouter from './controllers/files.js';
+import flowRunsRouter from './controllers/flow-runs.js';
 import flowsRouter from './controllers/flows.js';
 import foldersRouter from './controllers/folders.js';
 import graphqlRouter from './controllers/graphql.js';
@@ -364,6 +365,7 @@ export default async function createApp(): Promise<express.Application> {
 
 	app.use('/files', filesRouter);
 	app.use('/flows', flowsRouter);
+	app.use('/flow-runs', flowRunsRouter);
 	app.use('/folders', foldersRouter);
 	app.use('/items', itemsRouter);
 	app.use('/license', licenseRouter);

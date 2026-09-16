@@ -14,6 +14,8 @@ fields:
       - cast-json
   - field: resolve
   - field: reject
+  - field: retries
+  - field: retry_delay
   - field: flow
   - field: date_created
     special:

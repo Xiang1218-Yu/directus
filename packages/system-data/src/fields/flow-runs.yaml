@@ -1,0 +1,22 @@
+table: directus_flow_runs
+
+fields:
+  - field: id
+    special:
+      - uuid
+  - field: flow
+  - field: trigger
+  - field: status
+  - field: date_started
+    special:
+      - cast-timestamp
+  - field: date_finished
+    special:
+      - cast-timestamp
+  - field: user_created
+    special:
+      - user-created
+
+indexed:
+  - field: flow
+  - field: status

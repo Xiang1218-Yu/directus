@@ -24,6 +24,7 @@ import { useLogger } from './logger/index.js';
 import { fetchPermissions } from './permissions/lib/fetch-permissions.js';
 import { fetchPolicies } from './permissions/lib/fetch-policies.js';
 import { ActivityService } from './services/activity.js';
+import { FlowRunRecorder } from './services/flow-run-recorder.js';
 import { FlowsService } from './services/flows.js';
 import * as services from './services/index.js';
 import { RevisionsService } from './services/revisions.js';
@@ -34,6 +35,7 @@ import { getService } from './utils/get-service.js';
 import { isUnauthenticated } from './utils/is-unauthenticated.js';
 import { redactObject } from './utils/redact-object.js';
 import { scheduleSynchronizedJob, validateCron } from './utils/schedule.js';
+import { TIMELINE_REDACT_KEYS } from './utils/summarize-timeline.js';
 
 let flowManager: FlowManager | undefined;
 
@@ -232,8 +234,10 @@ class FlowManager {
 					const job = scheduleSynchronizedJob(flow.id, flow.options['cron'], async () => {
 						try {
 							await this.executeFlow(flow);
-						} catch (error: any) {
-							logger.error(error);
+						} catch {
+							// The failure details are recorded on the flow run timeline; logging the
+							// thrown error here could leak raw operation payloads into general logs
+							logger.error(`Scheduled flow ${flow.id} failed during execution`);
 						}
 					});
 
@@ -395,6 +399,15 @@ class FlowManager {
 		const database = (context['database'] as Knex) ?? getDatabase();
 		const schema = (context['schema'] as SchemaOverview) ?? (await getSchema({ database }));
 
+		const accountability = context?.['accountability'] as Accountability | undefined;
+
+		const recorder = await FlowRunRecorder.start(database, {
+			flowId: flow.id,
+			trigger: flow.trigger ?? 'manual',
+			userId: accountability?.user ?? null,
+			envValues: this.envs,
+		});
+
 		const keyedData: Record<string, unknown> = {
 			[TRIGGER_KEY]: data,
 			[LAST_KEY]: data,
@@ -414,24 +427,41 @@ class FlowManager {
 			options: Record<string, any> | null;
 		}[] = [];
 
-		while (nextOperation !== null) {
-			const { successor, data, status, options } = await this.executeOperation(nextOperation, keyedData, context);
+		try {
+			while (nextOperation !== null) {
+				const { successor, data, status, options } = await this.executeOperation(
+					nextOperation,
+					keyedData,
+					context,
+					recorder,
+				);
 
-			keyedData[nextOperation.key] = data;
-			keyedData[LAST_KEY] = data;
-			lastOperationStatus = status;
-			steps.push({ operation: nextOperation!.id, key: nextOperation.key, status, options });
+				keyedData[nextOperation.key] = data;
+				keyedData[LAST_KEY] = data;
+				lastOperationStatus = status;
+				steps.push({ operation: nextOperation!.id, key: nextOperation.key, status, options });
 
-			nextOperation = successor;
+				nextOperation = successor;
+			}
+		} catch (error) {
+			await recorder?.finish('failed');
+
+			// The failure is recorded on the timeline. The thrown value is re-logged by the
+			// trigger's own handler without including raw operation payloads.
+			throw error;
 		}
+
+		// A flow without configured operations completes successfully; 'unknown' only
+		// represents a failure when an operation actually ran without a registered handler
+		const runFailed = lastOperationStatus === 'reject' || (lastOperationStatus === 'unknown' && steps.length > 0);
+
+		await recorder?.finish(runFailed ? 'failed' : 'success');
 
 		if (flow.accountability !== null) {
 			const activityService = new ActivityService({
 				knex: database,
 				schema: schema,
 			});
-
-			const accountability = context?.['accountability'] as Accountability | undefined;
 
 			const activity = await activityService.createOne({
 				action: Action.RUN,
@@ -458,21 +488,7 @@ class FlowManager {
 						data: redactObject(
 							keyedData,
 							{
-								keys: [
-									['**', 'headers', 'authorization'],
-									['**', 'headers', 'cookie'],
-									['**', 'query', 'access_token'],
-									['**', 'payload', 'password'],
-									['**', 'payload', 'token'],
-									['**', 'payload', 'tfa_secret'],
-									['**', 'payload', 'external_identifier'],
-									['**', 'payload', 'auth_data'],
-									['**', 'payload', 'credentials'],
-									['**', 'payload', 'ai_openai_api_key'],
-									['**', 'payload', 'ai_anthropic_api_key'],
-									['**', 'payload', 'ai_google_api_key'],
-									['**', 'payload', 'ai_openai_compatible_api_key'],
-								],
+								keys: TIMELINE_REDACT_KEYS,
 								values: this.envs,
 							},
 							getRedactedString,
@@ -508,6 +524,7 @@ class FlowManager {
 		operation: Operation,
 		keyedData: Record<string, unknown>,
 		context: Record<string, unknown> = {},
+		recorder?: FlowRunRecorder | null,
 	): Promise<{
 		successor: Operation | null;
 		status: 'resolve' | 'reject' | 'unknown';
@@ -527,76 +544,94 @@ class FlowManager {
 		let optionData = keyedData;
 
 		if (operation.type === 'log') {
-			optionData = redactObject(
-				keyedData,
-				{
-					keys: [
-						['**', 'headers', 'authorization'],
-						['**', 'headers', 'cookie'],
-						['**', 'query', 'access_token'],
-						['**', 'payload', 'password'],
-						['**', 'payload', 'token'],
-						['**', 'payload', 'tfa_secret'],
-						['**', 'payload', 'external_identifier'],
-						['**', 'payload', 'auth_data'],
-						['**', 'payload', 'credentials'],
-						['**', 'payload', 'ai_openai_api_key'],
-						['**', 'payload', 'ai_anthropic_api_key'],
-						['**', 'payload', 'ai_google_api_key'],
-						['**', 'payload', 'ai_openai_compatible_api_key'],
-					],
-				},
-				getRedactedString,
-			);
+			optionData = redactObject(keyedData, { keys: TIMELINE_REDACT_KEYS }, getRedactedString);
 		}
 
 		let options = operation.options;
+		options = applyOptionsData(options, optionData);
 
-		try {
-			options = applyOptionsData(options, optionData);
+		const maxAttempts = Math.max(1, (operation.retries ?? 0) + 1);
+		const retryDelay = Math.max(0, operation.retry_delay ?? 100);
 
-			let result = await handler(options, {
-				services,
-				env: useEnv(),
-				database: getDatabase(),
-				logger,
-				getSchema,
-				data: keyedData,
-				accountability: null,
-				...context,
+		let lastError: unknown = null;
+
+		for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+			const nodeId = await recorder?.startNode({
+				operationId: operation.id,
+				key: operation.key,
+				type: operation.type,
+				attempt,
+				input: keyedData,
 			});
 
-			// Validate that the operations result is serializable and thus catching the error inside the flow execution
-			JSON.stringify(result ?? null);
+			try {
+				let result = await handler(options, {
+					services,
+					env: useEnv(),
+					database: getDatabase(),
+					logger,
+					getSchema,
+					data: keyedData,
+					accountability: null,
+					...context,
+				});
 
-			// JSON structures don't allow for undefined values, so we need to replace them with null
-			// Otherwise the applyOptionsData function will not work correctly on the next operation
-			if (typeof result === 'object' && result !== null) {
-				result = deepMap(result, (value) => (value === undefined ? null : value));
+				// Validate that the operations result is serializable and thus catching the error inside the flow execution
+				JSON.stringify(result ?? null);
+
+				// JSON structures don't allow for undefined values, so we need to replace them with null
+				// Otherwise the applyOptionsData function will not work correctly on the next operation
+				if (typeof result === 'object' && result !== null) {
+					result = deepMap(result, (value) => (value === undefined ? null : value));
+				}
+
+				await recorder?.finishNode(nodeId ?? null, 'success', { output: result ?? null });
+
+				return { successor: operation.resolve, status: 'resolve', data: result ?? null, options };
+			} catch (error) {
+				lastError = error;
+
+				await recorder?.finishNode(nodeId ?? null, 'failed', { error });
+
+				// A retry attempt failed but more attempts remain
+				if (attempt < maxAttempts) {
+					logger.warn(
+						`Operation ${operation.key} (${operation.type}) attempt ${attempt}/${maxAttempts} failed, retrying`,
+					);
+
+					if (retryDelay > 0) await delay(retryDelay);
+
+					continue;
+				}
+
+				let data;
+
+				if (error instanceof Error) {
+					// Don't expose the stack trace to the next operation
+					delete error.stack;
+					data = error;
+				} else if (typeof error === 'string') {
+					// If the error is a JSON string, parse it and use that as the error data
+					data = isValidJSON(error) ? parseJSON(error) : error;
+				} else {
+					// If error is plain object, use this as the error data and otherwise fallback to null
+					data = error ?? null;
+				}
+
+				return {
+					successor: operation.reject,
+					status: 'reject',
+					data,
+					options,
+				};
 			}
-
-			return { successor: operation.resolve, status: 'resolve', data: result ?? null, options };
-		} catch (error) {
-			let data;
-
-			if (error instanceof Error) {
-				// Don't expose the stack trace to the next operation
-				delete error.stack;
-				data = error;
-			} else if (typeof error === 'string') {
-				// If the error is a JSON string, parse it and use that as the error data
-				data = isValidJSON(error) ? parseJSON(error) : error;
-			} else {
-				// If error is plain object, use this as the error data and otherwise fallback to null
-				data = error ?? null;
-			}
-
-			return {
-				successor: operation.reject,
-				status: 'reject',
-				data,
-				options,
-			};
 		}
+
+		// Unreachable in practice, the loop either resolves or rejects on its final attempt
+		return { successor: operation.reject, status: 'reject', data: lastError, options };
 	}
+}
+
+function delay(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }

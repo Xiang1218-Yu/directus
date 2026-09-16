@@ -89,6 +89,12 @@ vi.mock('./services/revisions.js', () => ({
 	RevisionsService: vi.fn(),
 }));
 
+vi.mock('./services/flow-run-recorder.js', () => ({
+	FlowRunRecorder: {
+		start: vi.fn().mockResolvedValue(null),
+	},
+}));
+
 vi.mock('./services/index.js', () => ({}));
 
 vi.mock('./utils/get-service.js', () => ({
@@ -223,6 +229,120 @@ describe('FlowManager', () => {
 
 			// Assert
 			await expect(trigger).resolves.toHaveProperty('result');
+		});
+	});
+
+	describe('operation retries', () => {
+		test('follows the reject branch after retries are exhausted', async () => {
+			const handler = vi.fn().mockRejectedValue(new Error('boom'));
+			const manager = getFlowManager();
+
+			const fallbackHandler = vi.fn().mockResolvedValue('fallback');
+
+			const fallback = {
+				id: 'fallback-id',
+				name: 'Fallback',
+				key: 'fallback',
+				type: 'fallback-operation',
+				position_x: 2,
+				position_y: 1,
+				options: {},
+				resolve: null,
+				reject: null,
+				retries: 0,
+				retry_delay: 0,
+			} as any;
+
+			const operation = {
+				id: 'operation-id',
+				name: 'Failing op',
+				key: 'failing_op',
+				type: 'failing-operation',
+				position_x: 1,
+				position_y: 1,
+				options: {},
+				resolve: null,
+				reject: fallback,
+				retries: 2,
+				retry_delay: 0,
+			} as any;
+
+			const flow = {
+				id: 'retry-flow-id',
+				name: 'Retry Flow',
+				status: 'active',
+				trigger: 'webhook',
+				operation,
+				operations: [operation, fallback],
+				options: { return: '$last' },
+				accountability: null,
+			} as unknown as Flow;
+
+			manager.addOperation('failing-operation', handler);
+			manager.addOperation('fallback-operation', fallbackHandler);
+
+			const result = await (manager as any).executeFlow(flow, null, { accountability: null });
+
+			expect(handler).toHaveBeenCalledTimes(3); // initial attempt + 2 retries
+			expect(fallbackHandler).toHaveBeenCalledTimes(1);
+			expect(result).toBe('fallback');
+		});
+
+		test('stops retrying once an attempt succeeds', async () => {
+			const handler = vi.fn().mockRejectedValueOnce(new Error('temporary')).mockResolvedValueOnce('recovered');
+
+			const manager = getFlowManager();
+
+			const operation = {
+				id: 'operation-id',
+				name: 'Flaky op',
+				key: 'flaky_op',
+				type: 'flaky-operation',
+				position_x: 1,
+				position_y: 1,
+				options: {},
+				resolve: null,
+				reject: null,
+				retries: 3,
+				retry_delay: 0,
+			} as any;
+
+			const flow = {
+				id: 'retry-flow-id',
+				name: 'Retry Flow',
+				status: 'active',
+				trigger: 'webhook',
+				operation,
+				operations: [operation],
+				options: { return: '$last' },
+				accountability: null,
+			} as unknown as Flow;
+
+			manager.addOperation('flaky-operation', handler);
+
+			const result = await (manager as any).executeFlow(flow, null, { accountability: null });
+
+			expect(handler).toHaveBeenCalledTimes(2);
+			expect(result).toBe('recovered');
+		});
+
+		test('completes a flow without operations as a success', async () => {
+			const manager = getFlowManager();
+
+			const flow = {
+				id: 'empty-flow-id',
+				name: 'Empty Flow',
+				status: 'active',
+				trigger: 'webhook',
+				operation: null,
+				operations: [],
+				options: {},
+				accountability: null,
+			} as unknown as Flow;
+
+			const result = await (manager as any).executeFlow(flow, null, { accountability: null });
+
+			expect(result).toBeUndefined();
 		});
 	});
 });

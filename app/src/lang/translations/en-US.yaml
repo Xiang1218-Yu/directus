@@ -1124,6 +1124,21 @@ run_flow_on_current: Run Flow on Current Item
 run_flow_on_current_edited_confirm: This item may be updated by this Flow, are you sure you want to execute it?
 run_flow_on_selected: Select One or More Items First | Run Flow on 1 Selected Item | Run Flow on {n} Selected Items
 run_flow: Run Flow
+run_timeline: Run Timeline
+run_timeline_empty: This flow has not been triggered yet.
+run_timeline_empty_filtered: No runs match the selected status.
+run_timeline_no_access: You don't have access to the timeline of this flow.
+run_timeline_no_nodes: No nodes have been recorded for this run yet.
+run_status_running: Running
+run_status_success: Success
+run_status_failed: Failed
+run_node_started: Started
+run_node_finished: Finished
+run_node_still_running: Still running…
+run_node_input: Input
+run_node_output: Output
+run_node_error: Error
+all_statuses: All
 trigger_flow_success: Flow "{flow}" triggered successfully
 field_name_placeholder: Enter field name...
 field_key_placeholder: Enter field key...
@@ -1158,6 +1173,8 @@ code: Code
 operation_options: Operation Options
 operation_name: Name of operation...
 operation_key: Identifier for reference...
+operation_retries: Retries
+operation_retry_delay: Retry delay (ms)
 operation_key_unique_error: Operation keys must be unique in a Flow
 operation_handle_resolve: 'Resolve: Click to Add or Drag to Reroute'
 operation_handle_reject: 'Reject: Click to Add or Drag to Reroute'
@@ -1741,6 +1758,8 @@ directus_collection:
   directus_fields: Additional field configuration and metadata
   directus_files: Metadata for all managed file assets
   directus_flows: Automation Flows
+  directus_flow_runs: Flow run timeline records
+  directus_flow_run_nodes: Individual node executions within a flow run
   directus_folders: Provides virtual directories for files
   directus_migrations: What version of the database you're using
   directus_notifications: Notifications sent to users
