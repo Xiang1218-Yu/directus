@@ -2,10 +2,10 @@ import { describe, expect, test } from 'vitest';
 import { summarizeTimelineError, summarizeTimelineValue, TIMELINE_SUMMARY_MAX_LENGTH } from './summarize-timeline.js';
 
 describe('summarizeTimelineValue', () => {
-	test('serializes plain objects as pretty JSON', () => {
-		const result = summarizeTimelineValue({ a: 1, b: 'two' });
+	test('serializes whitelisted object fields as pretty JSON', () => {
+		const result = summarizeTimelineValue({ id: 'abc', name: 'two', status: 200 });
 
-		expect(result).toBe(JSON.stringify({ a: 1, b: 'two' }, null, 2));
+		expect(result).toBe(JSON.stringify({ id: 'abc', name: 'two', status: 200 }, null, 2));
 	});
 
 	test('returns null for null and undefined input', () => {
@@ -13,18 +13,40 @@ describe('summarizeTimelineValue', () => {
 		expect(summarizeTimelineValue(undefined)).toBeNull();
 	});
 
-	test('redacts configured sensitive key paths at any depth', () => {
+	test('returns null when every field is pruned by the allowlist', () => {
+		expect(summarizeTimelineValue({ secret: 'x', arbitrary: { nested: true } })).toBeNull();
+		expect(summarizeTimelineValue({})).toBeNull();
+	});
+
+	test('drops non-allowlisted fields and reports how many were omitted', () => {
 		const result = summarizeTimelineValue({
-			payload: { password: 'hunter2', name: 'public' },
-			deep: { nested: { headers: { authorization: 'Bearer abc', cookie: 'sid=1' } } },
-			query: { access_token: 'secret-token-value' },
+			id: 1,
+			payload: { password: 'hunter2', internal_status: 'public' },
+			custom_business_field: 'leak-me',
+			options: { keep: false },
+		});
+
+		expect(result).toContain('"id": 1');
+		expect(result).not.toContain('hunter2');
+		expect(result).not.toContain('leak-me');
+		expect(result).not.toContain('public');
+		expect(result).not.toContain('custom_business_field');
+		expect(result).toContain('"_omitted_fields": 2');
+	});
+
+	test('redacts configured sensitive key paths that survive the allowlist at any depth', () => {
+		const result = summarizeTimelineValue({
+			$trigger: {
+				headers: { authorization: 'Bearer abc', cookie: 'sid=1' },
+				query: { access_token: 'secret-token-value', page: 2 },
+				payload: { password: 'hunter2', name: 'public', email: 'a@example.com' },
+			},
 		});
 
 		expect(result).not.toContain('hunter2');
 		expect(result).not.toContain('Bearer abc');
 		expect(result).not.toContain('sid=1');
 		expect(result).not.toContain('secret-token-value');
-		expect(result).toContain('public');
 		expect(result).toMatch(/--redacted--/);
 	});
 
@@ -49,25 +71,64 @@ describe('summarizeTimelineValue', () => {
 
 	test('handles circular structures without throwing', () => {
 		const value: Record<string, unknown> = { name: 'root' };
-		value['self'] = value;
+		value['keys'] = [value];
 
-		const result = summarizeTimelineValue(value);
+		const result = summarizeTimelineValue({ $trigger: value });
 
 		expect(result).toContain('[Circular]');
 	});
 
-	test('parses JSON error strings and redacts their sensitive keys', () => {
+	test('parses JSON error strings and prunes their non-allowlisted keys', () => {
 		const result = summarizeTimelineValue(JSON.stringify({ payload: { password: 'x' }, ok: true }));
 
 		expect(result).toContain('"ok": true');
 		expect(result).not.toContain('"x"');
 	});
 
-	test('truncates oversized payloads and keeps them below the length bound', () => {
-		const result = summarizeTimelineValue({ blob: 'a'.repeat(TIMELINE_SUMMARY_MAX_LENGTH * 2) });
+	test('caps array length and individual string length', () => {
+		const result = summarizeTimelineValue({
+			id: 'x',
+			keys: Array.from({ length: 50 }, (_, index) => `key-${index}`),
+			name: 'a'.repeat(2_000),
+		});
 
-		expect(result!.length).toBeLessThanOrEqual(TIMELINE_SUMMARY_MAX_LENGTH + 20);
-		expect(result).toContain('[truncated]');
+		expect(result).toContain('more items');
+		expect(result).toContain('…');
+		expect(result).not.toContain('key-49');
+		expect(result!.length).toBeLessThan(4_000);
+	});
+
+	test('truncates oversized individual strings and keeps the whole summary bounded', () => {
+		// A single long field is capped per-value before serialization
+		const single = summarizeTimelineValue({ name: 'a'.repeat(2_000) });
+		expect(single!.length).toBeLessThan(1_000);
+		expect(single).toContain('…');
+		expect(single).not.toContain('a'.repeat(600));
+
+		// Many bounded fields can still exceed the global cap and are truncated as a whole
+		const many = summarizeTimelineValue({
+			keys: Array.from({ length: 150 }, () => ({
+				id: 'id',
+				name: 'x'.repeat(400),
+				description: 'y'.repeat(400),
+			})),
+		});
+
+		expect(many!.length).toBeLessThanOrEqual(TIMELINE_SUMMARY_MAX_LENGTH + 20);
+		expect(many).toContain('[truncated]');
+	});
+
+	test('never persists arbitrary operation outputs wholesale', () => {
+		const operationOutput = {
+			customer: { ssn: '123-45-6789', email: 'a@example.com' },
+			tokens: ['t1', 't2'],
+			internal_note: 'debug data',
+		};
+
+		const result = summarizeTimelineValue(operationOutput);
+
+		// The whole object is non-allowlisted, so no operational data reaches storage
+		expect(result).toBeNull();
 	});
 });
 

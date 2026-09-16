@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { FlowRaw } from '@directus/types';
 import { differenceInMilliseconds, format, parseISO } from 'date-fns';
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { FlowRun, FlowRunNode } from './types';
 import { useFlowRunDetail } from './use-flow-runs';
@@ -43,6 +43,13 @@ watch(
 	},
 	{ immediate: true },
 );
+
+onBeforeUnmount(() => {
+	if (clock !== null) {
+		clearInterval(clock);
+		clock = null;
+	}
+});
 
 function resolveOperation(node: FlowRunNode) {
 	const configured = props.flow?.operations.find((operation) => operation.id === node.operation);

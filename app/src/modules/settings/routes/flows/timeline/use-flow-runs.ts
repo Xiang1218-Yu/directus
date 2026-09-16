@@ -1,5 +1,5 @@
 import type { Ref } from 'vue';
-import { computed, ref, watch } from 'vue';
+import { computed, onScopeDispose, ref, watch } from 'vue';
 import type { FlowRun, FlowRunDetail, FlowRunsMeta, FlowRunStatus } from './types';
 import api from '@/api';
 import { unexpectedError } from '@/utils/unexpected-error';
@@ -67,6 +67,13 @@ export function useFlowRuns(flowId: Ref<string>) {
 		{ immediate: true },
 	);
 
+	onScopeDispose(() => {
+		if (timer !== null) {
+			clearInterval(timer);
+			timer = null;
+		}
+	});
+
 	return { runs, meta, loading, page, status, forbidden, getRuns };
 }
 
@@ -103,11 +110,12 @@ export function useFlowRunDetail(runId: Ref<string | null>) {
 		}
 	}
 
-	// Keep refreshing while the run or any of its nodes is still executing
+	// Keep refreshing while the run or any of its nodes is still executing. Access being
+	// denied (e.g. permission revoked while polling) also stops the interval.
 	watch(
-		() => [run.value?.status, run.value?.nodes.some((node) => node.status === 'running')],
-		([status, nodeRunning]) => {
-			const active = status === 'running' || nodeRunning === true;
+		() => [run.value?.status, run.value?.nodes.some((node) => node.status === 'running'), forbidden.value],
+		([status, nodeRunning, denied]) => {
+			const active = !denied && (status === 'running' || nodeRunning === true);
 
 			if (active && timer === null) {
 				timer = setInterval(getRun, REFRESH_INTERVAL);
@@ -120,6 +128,13 @@ export function useFlowRunDetail(runId: Ref<string | null>) {
 	);
 
 	watch(runId, getRun, { immediate: true });
+
+	onScopeDispose(() => {
+		if (timer !== null) {
+			clearInterval(timer);
+			timer = null;
+		}
+	});
 
 	return { run, loading, forbidden, error, getRun };
 }

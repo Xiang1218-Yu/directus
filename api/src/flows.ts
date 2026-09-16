@@ -427,17 +427,21 @@ class FlowManager {
 			options: Record<string, any> | null;
 		}[] = [];
 
+		// Only the trigger envelope is eligible for summaries; upstream operation
+		// payloads are never copied into later nodes' timeline input
+		const timelineInput = { $trigger: data };
+
 		try {
 			while (nextOperation !== null) {
-				const { successor, data, status, options } = await this.executeOperation(
-					nextOperation,
-					keyedData,
-					context,
-					recorder,
-				);
+				const {
+					successor,
+					data: resultData,
+					status,
+					options,
+				} = await this.executeOperation(nextOperation, keyedData, context, recorder, timelineInput);
 
-				keyedData[nextOperation.key] = data;
-				keyedData[LAST_KEY] = data;
+				keyedData[nextOperation.key] = resultData;
+				keyedData[LAST_KEY] = resultData;
 				lastOperationStatus = status;
 				steps.push({ operation: nextOperation!.id, key: nextOperation.key, status, options });
 
@@ -525,6 +529,7 @@ class FlowManager {
 		keyedData: Record<string, unknown>,
 		context: Record<string, unknown> = {},
 		recorder?: FlowRunRecorder | null,
+		timelineInput?: unknown,
 	): Promise<{
 		successor: Operation | null;
 		status: 'resolve' | 'reject' | 'unknown';
@@ -535,6 +540,20 @@ class FlowManager {
 
 		if (!this.operations.has(operation.type)) {
 			logger.warn(`Couldn't find operation ${operation.type}`);
+
+			// Record the unregistered operation as a failed node so it is visible in the
+			// timeline instead of failing the run without any node information
+			const nodeId = await recorder?.startNode({
+				operationId: operation.id,
+				key: operation.key,
+				type: operation.type,
+				attempt: 1,
+				input: timelineInput ?? null,
+			});
+
+			const unknownOperationError = new Error(`Operation type "${operation.type}" is not registered`);
+
+			await recorder?.finishNode(nodeId ?? null, 'failed', { error: unknownOperationError });
 
 			return { successor: null, status: 'unknown', data: null, options: null };
 		}
@@ -561,7 +580,7 @@ class FlowManager {
 				key: operation.key,
 				type: operation.type,
 				attempt,
-				input: keyedData,
+				input: timelineInput ?? null,
 			});
 
 			try {

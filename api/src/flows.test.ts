@@ -89,9 +89,25 @@ vi.mock('./services/revisions.js', () => ({
 	RevisionsService: vi.fn(),
 }));
 
+const recorderMock = vi.hoisted(() => ({
+	start: vi.fn(),
+	startNode: vi.fn(),
+	finishNode: vi.fn(),
+	finish: vi.fn(),
+}));
+
 vi.mock('./services/flow-run-recorder.js', () => ({
 	FlowRunRecorder: {
-		start: vi.fn().mockResolvedValue(null),
+		start: (...args: unknown[]) =>
+			recorderMock.start(...args).then((id) =>
+				id === null
+					? null
+					: {
+							startNode: recorderMock.startNode,
+							finishNode: recorderMock.finishNode,
+							finish: recorderMock.finish,
+						},
+			),
 	},
 }));
 
@@ -114,6 +130,13 @@ describe('FlowManager', () => {
 
 	beforeEach(async () => {
 		vi.resetModules();
+
+		// By default the timeline recorder is unavailable, matching previous behavior
+		recorderMock.start.mockResolvedValue(null);
+		recorderMock.startNode.mockResolvedValue('node-id');
+		recorderMock.finishNode.mockResolvedValue(undefined);
+		recorderMock.finish.mockResolvedValue(undefined);
+
 		const module = await import('./flows.js');
 		getFlowManager = module.getFlowManager;
 	});
@@ -289,6 +312,9 @@ describe('FlowManager', () => {
 		});
 
 		test('stops retrying once an attempt succeeds', async () => {
+			// Timeline is enabled: one failed attempt node followed by a successful one
+			recorderMock.start.mockResolvedValue('run-1');
+
 			const handler = vi.fn().mockRejectedValueOnce(new Error('temporary')).mockResolvedValueOnce('recovered');
 
 			const manager = getFlowManager();
@@ -324,6 +350,23 @@ describe('FlowManager', () => {
 
 			expect(handler).toHaveBeenCalledTimes(2);
 			expect(result).toBe('recovered');
+
+			// One node row per attempt: attempt 1 failed, attempt 2 succeeded
+			expect(recorderMock.startNode).toHaveBeenCalledTimes(2);
+			expect(recorderMock.startNode.mock.calls[0]![0]).toMatchObject({ attempt: 1, key: 'flaky_op' });
+			expect(recorderMock.startNode.mock.calls[1]![0]).toMatchObject({ attempt: 2, key: 'flaky_op' });
+
+			expect(recorderMock.finishNode).toHaveBeenNthCalledWith(
+				1,
+				'node-id',
+				'failed',
+				expect.objectContaining({ error: expect.any(Error) }),
+			);
+
+			expect(recorderMock.finishNode).toHaveBeenNthCalledWith(2, 'node-id', 'success', expect.objectContaining({}));
+
+			// The run eventually completes successfully even though it had failed attempts
+			expect(recorderMock.finish).toHaveBeenCalledWith('success');
 		});
 
 		test('completes a flow without operations as a success', async () => {
@@ -343,6 +386,80 @@ describe('FlowManager', () => {
 			const result = await (manager as any).executeFlow(flow, null, { accountability: null });
 
 			expect(result).toBeUndefined();
+		});
+
+		test('records a failed node with a redacted error for an unregistered operation type', async () => {
+			// Enable the timeline recorder for this run
+			recorderMock.start.mockResolvedValue('run-1');
+
+			const manager = getFlowManager();
+
+			const operation = {
+				id: 'operation-id',
+				name: 'Missing op',
+				key: 'missing_op',
+				type: 'this-operation-is-not-registered',
+				position_x: 1,
+				position_y: 1,
+				options: {},
+				resolve: null,
+				reject: null,
+				retries: 0,
+				retry_delay: 0,
+			} as any;
+
+			const flow = {
+				id: 'unknown-op-flow-id',
+				name: 'Unknown Op Flow',
+				status: 'active',
+				trigger: 'webhook',
+				operation,
+				operations: [operation],
+				options: {},
+				accountability: null,
+			} as unknown as Flow;
+
+			await (manager as any).executeFlow(
+				flow,
+				{ collection: 'articles', method: 'GET', custom_business_field: 'should-not-persist' },
+				{ accountability: null },
+			);
+
+			// The run was started for this flow. The database dependency is undefined
+			// because getDatabase is mocked in this test file
+			expect(recorderMock.start).toHaveBeenCalledTimes(1);
+
+			expect(recorderMock.start.mock.calls[0]![1]).toMatchObject({
+				flowId: 'unknown-op-flow-id',
+				trigger: 'webhook',
+			});
+
+			// The unknown operation still produced a node
+			expect(recorderMock.startNode).toHaveBeenCalledWith(
+				expect.objectContaining({
+					operationId: 'operation-id',
+					key: 'missing_op',
+					type: 'this-operation-is-not-registered',
+					attempt: 1,
+				}),
+			);
+
+			// It was closed as failed with an error describing the missing registration
+			expect(recorderMock.finishNode).toHaveBeenCalledTimes(1);
+			const [nodeId, status, nodeResult] = recorderMock.finishNode.mock.calls[0]!;
+			expect(nodeId).toBe('node-id');
+			expect(status).toBe('failed');
+			expect(nodeResult.error).toBeInstanceOf(Error);
+			expect(nodeResult.error.message).toContain('not registered');
+
+			// Only the trigger envelope is passed as node input - upstream operation
+			// payloads can never leak into later nodes' timeline input
+			const capturedInput = recorderMock.startNode.mock.calls[0]![0].input;
+			expect(capturedInput).toHaveProperty('$trigger');
+			expect(capturedInput).not.toHaveProperty('$last');
+
+			// The run itself is marked failed
+			expect(recorderMock.finish).toHaveBeenCalledWith('failed');
 		});
 	});
 });

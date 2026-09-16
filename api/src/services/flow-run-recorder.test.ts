@@ -86,7 +86,9 @@ describe('FlowRunRecorder', () => {
 			key: 'transform',
 			type: 'transform',
 			attempt: 1,
-			input: { payload: { password: 'hunter2', name: 'ok' } },
+			input: {
+				$trigger: { collection: 'articles', payload: { password: 'hunter2', name: 'public' } },
+			},
 		});
 
 		expect(nodeId).toBeTruthy();
@@ -99,16 +101,22 @@ describe('FlowRunRecorder', () => {
 			status: 'running',
 		});
 
-		// Sensitive input is redacted before persistence
+		// Sensitive values are redacted before persistence
 		const storedInput = tables['directus_flow_run_nodes'].inserts[0]!.input_summary;
 		expect(storedInput).not.toContain('hunter2');
-		expect(storedInput).toContain('ok');
+		expect(storedInput).toContain('articles');
 
-		await recorder!.finishNode(nodeId, 'success', { output: { result: 'done' } });
+		// Whitelisted generic fields are retained in the output summary
+		await recorder!.finishNode(nodeId, 'success', {
+			output: { id: 'record-1', status: 200, secret: 'dropped' },
+		});
+
 		await recorder!.finish('success');
 
 		expect(tables['directus_flow_run_nodes'].updates[0]).toMatchObject({ status: 'success' });
-		expect(tables['directus_flow_run_nodes'].updates[0]!.output_summary).toContain('done');
+		const storedOutput = tables['directus_flow_run_nodes'].updates[0]!.output_summary;
+		expect(storedOutput).toContain('record-1');
+		expect(storedOutput).not.toContain('dropped');
 		expect(tables['directus_flow_runs'].updates[0]).toMatchObject({ status: 'success' });
 	});
 

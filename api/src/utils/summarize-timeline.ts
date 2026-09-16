@@ -10,6 +10,90 @@ import { redactObject } from './redact-object.js';
 export const TIMELINE_SUMMARY_MAX_LENGTH = 10_000;
 
 /**
+ * Bounds applied while pruning operation payloads into timeline summaries. Raw operation
+ * payloads are never persisted - only generic, low-sensitivity fields pass the allowlist below,
+ * and even those are capped in depth/size.
+ */
+const TIMELINE_MAX_DEPTH = 6;
+const TIMELINE_MAX_ARRAY_ITEMS = 20;
+const TIMELINE_MAX_STRING_LENGTH = 500;
+const TIMELINE_MAX_OBJECT_KEYS = 50;
+
+/**
+ * Generic structural/non-sensitive field names that may appear in a timeline summary. Anything
+ * outside this allowlist is dropped before persistence. This intentionally excludes free-form
+ * fields such as `data`, `options` or custom operation keys.
+ */
+const TIMELINE_ALLOWED_KEYS = new Set([
+	// Flow trigger envelope and containers that may carry redactable children
+	'$trigger',
+	'$last',
+	'_omitted_fields',
+	'event',
+	'headers',
+	'query',
+	'payload',
+	'body',
+	'key',
+	'keys',
+	'collection',
+	'method',
+	'path',
+	'url',
+	'status',
+	'statusCode',
+	'statusText',
+	// Common operation inputs/outputs
+	'id',
+	'ids',
+	'type',
+	'name',
+	'title',
+	'description',
+	'email',
+	'count',
+	'total',
+	'page',
+	'limit',
+	'length',
+	'success',
+	'ok',
+	'error',
+	'cause',
+	'message',
+	'code',
+	'reason',
+	'started_at',
+	'finished_at',
+	'date',
+	'timestamp',
+	'duration',
+	'attempt',
+	'retries',
+]);
+
+/**
+ * Key names that are never persisted in timeline summaries, even though structurally generic
+ * callers may provide them. They must survive pruning so the subsequent redact pass can replace
+ * the value with a redaction marker (rather than silently dropping the field).
+ */
+const TIMELINE_SENSITIVE_KEYS = new Set([
+	'authorization',
+	'cookie',
+	'access_token',
+	'password',
+	'token',
+	'tfa_secret',
+	'external_identifier',
+	'auth_data',
+	'credentials',
+	'ai_openai_api_key',
+	'ai_anthropic_api_key',
+	'ai_google_api_key',
+	'ai_openai_compatible_api_key',
+]);
+
+/**
  * Key paths that must never be persisted in a flow run timeline, regardless of the operation
  * that produced the value. Mirrors the redaction rules applied to flow revisions.
  */
@@ -30,47 +114,44 @@ export const TIMELINE_REDACT_KEYS: string[][] = [
 ];
 
 /**
- * Serialize a value for persistence in the timeline: sensitive keys and configured env values
- * are redacted, non-serializable values (errors, circular structures) are normalized, and the
- * result is truncated to {@link TIMELINE_SUMMARY_MAX_LENGTH} characters.
+ * Serialize a value for persistence in the timeline. The value is first pruned to a bounded,
+ * allowlist-based summary (raw operation payloads never reach storage), then sensitive keys and
+ * configured env values are redacted, and the result is truncated to
+ * {@link TIMELINE_SUMMARY_MAX_LENGTH} characters.
  *
- * Returns null when the value serializes to null/undefined so nothing gets stored for it.
+ * Returns null when nothing meaningful remains or the value is nullish.
  */
 export function summarizeTimelineValue(value: unknown, envValues?: Record<string, unknown>): string | null {
 	const safe = toSerializable(value);
 
 	if (safe === null) return null;
 
-	// redactObject operates on object structures; wrap primitives so values that happen to
-	// contain configured env values are still redacted when serialized
-	const redactable: UnknownObject = isPlainRecord(safe) ? safe : { value: safe };
+	const pruned = pruneToSummary(safe);
 
-	const redacted = redactObject(
-		redactable,
-		{
-			keys: TIMELINE_REDACT_KEYS,
-			...(envValues ? { values: envValues } : {}),
-		},
-		getRedactedString,
-	);
+	if (pruned === null || pruned === undefined) return null;
 
-	const output = isPlainRecord(safe) ? redacted : redacted['value'];
+	if (isPlainRecord(pruned)) {
+		// Drop branches whose children were all pruned themselves, keeping the summary compact
+		const compacted = compactObject(pruned);
+		if (compacted === null) return null;
 
-	let serialized: string;
+		// If the top-level value only reports omissions, nothing meaningful survived pruning
+		if (Object.keys(compacted).every((key) => key === '_omitted_fields')) return null;
 
-	try {
-		serialized = typeof output === 'string' ? output : JSON.stringify(output, null, 2);
-	} catch {
-		return null;
+		return serialize(compacted, envValues);
 	}
 
-	if (serialized === undefined) return null;
+	if (Array.isArray(pruned)) {
+		const compacted = pruned.filter(
+			(entry) => entry !== null && !(isPlainRecord(entry) && Object.keys(entry).length === 0),
+		);
 
-	if (serialized.length > TIMELINE_SUMMARY_MAX_LENGTH) {
-		serialized = serialized.slice(0, TIMELINE_SUMMARY_MAX_LENGTH) + '\n…[truncated]';
+		if (compacted.length === 0) return null;
+
+		return serialize(compacted, envValues);
 	}
 
-	return serialized;
+	return serialize(pruned, envValues);
 }
 
 /**
@@ -90,6 +171,129 @@ export function summarizeTimelineError(error: unknown, envValues?: Record<string
 	if (serializable['cause'] !== undefined) minimal['cause'] = serializable['cause'];
 
 	return summarizeTimelineValue(minimal, envValues);
+}
+
+function serialize(value: unknown, envValues?: Record<string, unknown>): string | null {
+	// redactObject operates on object structures; wrap primitives so values that happen to
+	// contain configured env values are still redacted when serialized
+	const redactable: UnknownObject = isPlainRecord(value) ? value : { value };
+
+	const redacted = redactObject(
+		redactable,
+		{
+			keys: TIMELINE_REDACT_KEYS,
+			...(envValues ? { values: envValues } : {}),
+		},
+		getRedactedString,
+	);
+
+	const output = isPlainRecord(value) ? redacted : redacted['value'];
+
+	let serialized: string;
+
+	try {
+		serialized = typeof output === 'string' ? output : JSON.stringify(output, null, 2);
+	} catch {
+		return null;
+	}
+
+	if (serialized === undefined) return null;
+
+	if (serialized.length > TIMELINE_SUMMARY_MAX_LENGTH) {
+		serialized = serialized.slice(0, TIMELINE_SUMMARY_MAX_LENGTH) + '\n…[truncated]';
+	}
+
+	return serialized;
+}
+
+/**
+ * Reduce an arbitrary value to a bounded summary containing only allowlisted, generic fields.
+ * Non-allowlisted object keys and oversized arrays/strings are replaced with omission markers.
+ */
+function pruneToSummary(value: unknown, depth = 0): unknown {
+	if (value === null || value === undefined) return null;
+
+	if (typeof value === 'string') return truncateString(value);
+
+	if (typeof value === 'number' || typeof value === 'boolean') return value;
+
+	if (depth >= TIMELINE_MAX_DEPTH) return '[depth-limit]';
+
+	if (Array.isArray(value)) {
+		if (value.length === 0) return [];
+
+		const items = value.slice(0, TIMELINE_MAX_ARRAY_ITEMS).map((item) => pruneToSummary(item, depth + 1));
+
+		if (value.length > TIMELINE_MAX_ARRAY_ITEMS) {
+			items.push(`…[${value.length - TIMELINE_MAX_ARRAY_ITEMS} more items]`);
+		}
+
+		return items;
+	}
+
+	if (isPlainRecord(value)) {
+		const result: UnknownObject = {};
+		let kept = 0;
+		let dropped = 0;
+
+		for (const [key, entry] of Object.entries(value)) {
+			if (!TIMELINE_ALLOWED_KEYS.has(key) && !TIMELINE_SENSITIVE_KEYS.has(key)) {
+				dropped += 1;
+				continue;
+			}
+
+			if (kept >= TIMELINE_MAX_OBJECT_KEYS) {
+				dropped += 1;
+				continue;
+			}
+
+			result[key] = pruneToSummary(entry, depth + 1);
+			kept += 1;
+		}
+
+		if (dropped > 0) {
+			result['_omitted_fields'] = dropped;
+		}
+
+		return result;
+	}
+
+	return null;
+}
+
+/**
+ * Remove object branches that only contain omission markers or empty pruned children. Real
+ * redaction markers (`--redacted--`) are preserved so auditors can see where secrets were.
+ */
+function compactObject(value: UnknownObject): UnknownObject | null {
+	const result: UnknownObject = {};
+
+	for (const [key, entry] of Object.entries(value)) {
+		if (key === '_omitted_fields') {
+			result[key] = entry;
+			continue;
+		}
+
+		if (isPlainRecord(entry)) {
+			const child = compactObject(entry);
+			if (child !== null && Object.keys(child).length > 0) result[key] = child;
+		} else if (Array.isArray(entry)) {
+			const children = entry
+				.map((item) => (isPlainRecord(item) ? compactObject(item) : item))
+				.filter((item) => item !== null && !(isPlainRecord(item) && Object.keys(item).length === 0));
+
+			if (children.length > 0) result[key] = children;
+		} else if (entry !== null) {
+			result[key] = entry;
+		}
+	}
+
+	return Object.keys(result).length > 0 ? result : null;
+}
+
+function truncateString(value: string): string {
+	if (value.length <= TIMELINE_MAX_STRING_LENGTH) return value;
+	return value.slice(0, TIMELINE_MAX_STRING_LENGTH) + '…';
 }
 
 /**
