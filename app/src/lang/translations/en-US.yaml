@@ -1749,6 +1749,9 @@ directus_collection:
   directus_permissions: Access permissions for each policy
   directus_policies: Access control policies
   directus_presets: Presets for collection defaults and bookmarks
+  directus_quality_rules: Configurable content quality checks
+  directus_quality_runs: Content quality check scan history
+  directus_quality_findings: Content quality check findings
   directus_relations: Relationship configuration and metadata
   directus_revisions: Data snapshots for all activity
   directus_roles: Permission groups for system users

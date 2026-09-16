@@ -67,6 +67,11 @@ export const MODULE_BAR_DEFAULT: (SettingsModuleBarLink | SettingsModuleBarModul
 	},
 	{
 		type: 'module',
+		id: 'quality-rules',
+		enabled: true,
+	},
+	{
+		type: 'module',
 		id: 'deployments',
 		enabled: false,
 	},

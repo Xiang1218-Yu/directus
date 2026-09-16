@@ -1,0 +1,26 @@
+table: directus_quality_runs
+
+fields:
+  - field: id
+    special:
+      - uuid
+  - field: rule
+  - field: rule_version
+  - field: trigger
+  - field: status
+  - field: batch_size
+  - field: scanned_count
+  - field: finding_count
+  - field: error
+  - field: date_started
+    special:
+      - cast-timestamp
+  - field: date_finished
+    special:
+      - cast-timestamp
+  - field: user_created
+    special:
+      - user-created
+  - field: findings
+    special:
+      - o2m

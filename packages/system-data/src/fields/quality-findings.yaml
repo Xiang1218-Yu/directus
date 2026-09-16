@@ -1,0 +1,18 @@
+table: directus_quality_findings
+
+fields:
+  - field: id
+    special:
+      - uuid
+  - field: run
+  - field: rule
+  - field: collection
+  - field: item
+  - field: fields
+    special:
+      - cast-json
+  - field: message
+  - field: date_created
+    special:
+      - date-created
+      - cast-timestamp

@@ -122,6 +122,18 @@ data:
   - collection: directus_deployment_runs
     note: $t:directus_collection.directus_deployment_runs
 
+  - collection: directus_quality_rules
+    icon: fact_check
+    note: $t:directus_collection.directus_quality_rules
+
+  - collection: directus_quality_runs
+    hidden: true
+    note: $t:directus_collection.directus_quality_runs
+
+  - collection: directus_quality_findings
+    hidden: true
+    note: $t:directus_collection.directus_quality_findings
+
   - collection: directus_oauth_clients
     note: $t:directus_collection.directus_oauth_clients
     accountability: null

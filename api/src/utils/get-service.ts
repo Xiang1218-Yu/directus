@@ -18,6 +18,8 @@ import {
 	PermissionsService,
 	PoliciesService,
 	PresetsService,
+	QualityRulesService,
+	QualityRunsService,
 	RevisionsService,
 	RolesService,
 	SettingsService,
@@ -57,6 +59,10 @@ export function getService(collection: string, opts: AbstractServiceOptions): It
 			return new PermissionsService(opts);
 		case 'directus_presets':
 			return new PresetsService(opts);
+		case 'directus_quality_rules':
+			return new QualityRulesService(opts);
+		case 'directus_quality_runs':
+			return new QualityRunsService(opts);
 		case 'directus_policies':
 			return new PoliciesService(opts);
 		case 'directus_revisions':

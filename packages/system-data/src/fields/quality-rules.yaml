@@ -1,0 +1,36 @@
+table: directus_quality_rules
+
+fields:
+  - field: id
+    special:
+      - uuid
+  - field: name
+  - field: description
+  - field: collection
+  - field: fields
+    special:
+      - cast-json
+  - field: type
+  - field: options
+    special:
+      - cast-json
+  - field: schedule
+  - field: status
+  - field: version
+  - field: date_created
+    special:
+      - date-created
+      - cast-timestamp
+  - field: date_updated
+    special:
+      - date-updated
+      - cast-timestamp
+  - field: user_created
+    special:
+      - user-created
+  - field: user_updated
+    special:
+      - user-updated
+  - field: runs
+    special:
+      - o2m

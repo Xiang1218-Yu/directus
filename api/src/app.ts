@@ -44,6 +44,7 @@ import panelsRouter from './controllers/panels.js';
 import permissionsRouter from './controllers/permissions.js';
 import policiesRouter from './controllers/policies.js';
 import presetsRouter from './controllers/presets.js';
+import qualityRulesRouter from './controllers/quality-rules.js';
 import relationsRouter from './controllers/relations.js';
 import revisionsRouter from './controllers/revisions.js';
 import rolesRouter from './controllers/roles.js';
@@ -66,6 +67,7 @@ import { ensureDeploymentWebhooks, registerDeploymentDrivers } from './deploymen
 import emitter from './emitter.js';
 import { getExtensionManager } from './extensions/index.js';
 import { getFlowManager } from './flows.js';
+import { getQualityRuleManager } from './quality-rules.js';
 import { getEntitlementManager, getLicenseManager } from './license/index.js';
 import { createExpressLogger, useLogger } from './logger/index.js';
 import authenticate from './middleware/authenticate.js';
@@ -143,9 +145,11 @@ export default async function createApp(): Promise<express.Application> {
 
 	const extensionManager = getExtensionManager();
 	const flowManager = getFlowManager();
+	const qualityRuleManager = getQualityRuleManager();
 
 	await extensionManager.initialize();
 	await flowManager.initialize();
+	await qualityRuleManager.initialize();
 
 	const app = express();
 
@@ -389,6 +393,7 @@ export default async function createApp(): Promise<express.Application> {
 	app.use('/permissions', permissionsRouter);
 	app.use('/policies', policiesRouter);
 	app.use('/presets', presetsRouter);
+	app.use('/quality-rules', qualityRulesRouter);
 	app.use('/translations', translationsRouter);
 	app.use('/relations', relationsRouter);
 	app.use('/revisions', revisionsRouter);

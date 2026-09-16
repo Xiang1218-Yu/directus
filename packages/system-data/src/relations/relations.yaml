@@ -168,6 +168,36 @@ data:
     many_field: share
     one_collection: directus_shares
 
+  ### Quality Rules
+  - many_collection: directus_quality_runs
+    many_field: rule
+    one_collection: directus_quality_rules
+    one_field: runs
+    one_deselect_action: delete
+
+  - many_collection: directus_quality_findings
+    many_field: run
+    one_collection: directus_quality_runs
+    one_field: findings
+    one_deselect_action: delete
+
+  - many_collection: directus_quality_findings
+    many_field: rule
+    one_collection: directus_quality_rules
+    one_deselect_action: delete
+
+  - many_collection: directus_quality_rules
+    many_field: user_created
+    one_collection: directus_users
+
+  - many_collection: directus_quality_rules
+    many_field: user_updated
+    one_collection: directus_users
+
+  - many_collection: directus_quality_runs
+    many_field: user_created
+    one_collection: directus_users
+
   ### Dashboards
   - many_collection: directus_dashboards
     many_field: user_created
