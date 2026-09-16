@@ -7,6 +7,9 @@ import cacheClear from './commands/cache/clear.js';
 import dbMigrate from './commands/database/migrate.js';
 import init from './commands/init/index.js';
 import { apply } from './commands/schema/apply.js';
+import { packageApply } from './commands/schema/package-apply.js';
+import { packageCheck } from './commands/schema/package-check.js';
+import { packageCreate } from './commands/schema/package-create.js';
 import usersCreate from './commands/users/create.js';
 import { loadExtensions } from './load-extensions.js';
 import { createCli } from './index.js';
@@ -43,6 +46,18 @@ vi.mock('./commands/init/index.js', () => ({
 
 vi.mock('./commands/schema/apply.js', () => ({
 	apply: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('./commands/schema/package-apply.js', () => ({
+	packageApply: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('./commands/schema/package-check.js', () => ({
+	packageCheck: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('./commands/schema/package-create.js', () => ({
+	packageCreate: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('./commands/users/create.js', () => ({
@@ -171,6 +186,77 @@ describe('createCli', () => {
 					dryRun: true,
 				}),
 				expect.anything(),
+			);
+		});
+
+		test('Should register schema package create/check/apply subcommands', async () => {
+			const schemaCommand = program.commands.find((command) => command.name() === 'schema');
+			expect(schemaCommand).toBeDefined();
+
+			const packageCommand = schemaCommand!.commands.find((command) => command.name() === 'package');
+			expect(packageCommand).toBeDefined();
+
+			expect(packageCommand!.commands.map((command) => command.name()).sort()).toEqual(['apply', 'check', 'create']);
+		});
+
+		test('Should parse schema package apply arguments and options', async () => {
+			await program.parseAsync([
+				'node',
+				'directus',
+				'schema',
+				'package',
+				'apply',
+				'--dry-run',
+				'--yes',
+				'./migration.yaml',
+			]);
+
+			expect(packageApply).toHaveBeenCalledWith(
+				'./migration.yaml',
+				expect.objectContaining({ dryRun: true, yes: true }),
+				expect.anything(),
+			);
+		});
+
+		test('Should parse schema package check arguments', async () => {
+			await program.parseAsync([
+				'node',
+				'directus',
+				'schema',
+				'package',
+				'check',
+				'--allow-hash-mismatch',
+				'./migration.json',
+			]);
+
+			expect(packageCheck).toHaveBeenCalledWith(
+				'./migration.json',
+				expect.objectContaining({ allowHashMismatch: true }),
+				expect.anything(),
+			);
+		});
+
+		test('Should parse schema package create target, output and metadata options', async () => {
+			await program.parseAsync([
+				'node',
+				'directus',
+				'schema',
+				'package',
+				'create',
+				'--id',
+				'mig-1',
+				'--from',
+				'./source.yaml',
+				'--format',
+				'json',
+				'./target.yaml',
+				'./out.json',
+			]);
+
+			expect(packageCreate).toHaveBeenCalledWith(
+				'./target.yaml',
+				expect.objectContaining({ id: 'mig-1', from: './source.yaml', format: 'json' }),
+				'./out.json',
 			);
 		});
 	});

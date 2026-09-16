@@ -1,0 +1,21 @@
+import "./types-BWrchNCm.js";
+import { t as unplugin } from "./index-DZgEc0YS.js";
+
+//#region src/rolldown.d.ts
+
+/**
+ * Rolldown plugin
+ *
+ * @example
+ * ```ts
+ * // rolldown.config.js
+ * import yaml from "unplugin-yaml/rolldown"
+ *
+ * export default {
+ *   plugins: [yaml()],
+ * }
+ * ```
+ */
+declare const _default: typeof unplugin.rolldown;
+//#endregion
+export { _default as default };

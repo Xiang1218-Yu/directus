@@ -1,0 +1,19 @@
+import { type PackageInRegistry, type PackageMeta } from '@pnpm/registry.types';
+import { type VersionSelectors } from '@pnpm/resolver-base';
+import { type PackageVersionPolicy } from '@pnpm/types';
+import { type RegistryPackageSpec } from './parseBareSpecifier.js';
+export interface PickVersionByVersionRangeOptions {
+    meta: PackageMeta;
+    versionRange: string;
+    preferredVersionSelectors?: VersionSelectors;
+    publishedBy?: Date;
+}
+export type PickVersionByVersionRange = (options: PickVersionByVersionRangeOptions) => string | null;
+export interface PickPackageFromMetaOptions {
+    preferredVersionSelectors: VersionSelectors | undefined;
+    publishedBy?: Date;
+    publishedByExclude?: PackageVersionPolicy;
+}
+export declare function pickPackageFromMeta(pickVersionByVersionRangeFn: PickVersionByVersionRange, { preferredVersionSelectors, publishedBy, publishedByExclude, }: PickPackageFromMetaOptions, spec: RegistryPackageSpec, meta: PackageMeta): PackageInRegistry | null;
+export declare function pickLowestVersionByVersionRange({ meta, versionRange, preferredVersionSelectors }: PickVersionByVersionRangeOptions): string | null;
+export declare function pickVersionByVersionRange({ meta, versionRange, preferredVersionSelectors }: PickVersionByVersionRangeOptions): string | null;

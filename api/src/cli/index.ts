@@ -10,6 +10,9 @@ import dbMigrate from './commands/database/migrate.js';
 import init from './commands/init/index.js';
 import rolesCreate from './commands/roles/create.js';
 import { apply } from './commands/schema/apply.js';
+import { packageApply } from './commands/schema/package-apply.js';
+import { packageCheck } from './commands/schema/package-check.js';
+import { packageCreate } from './commands/schema/package-create.js';
 import { snapshot } from './commands/schema/snapshot.js';
 import keyGenerate from './commands/security/key.js';
 import secretGenerate from './commands/security/secret.js';
@@ -118,6 +121,39 @@ export async function createCli(): Promise<Command> {
 		)
 		.argument('<path>', 'Path to snapshot file')
 		.action(apply);
+
+	const packageCommand = schemaCommands.command('package').description('Manage reviewable schema migration packages');
+
+	packageCommand
+		.command('create')
+		.description('Create a migration package from a target snapshot (optionally diffed against a source snapshot)')
+		.option('-y, --yes', `Assume "yes" as answer to all prompts and run non-interactively`)
+		.addOption(new Option('--format <format>', 'JSON or YAML format').choices(['json', 'yaml']).default('yaml'))
+		.option('--from <path>', 'Path to the source snapshot file (defaults to the current live schema)')
+		.option('--id <value>', 'Explicit package id used for bookkeeping (defaults to a timestamped id)')
+		.option('--author <value>', 'Author metadata written into the package')
+		.option('--description <value>', 'Description metadata written into the package for reviewers')
+		.argument('<target>', 'Path to the target snapshot file')
+		.argument('[output]', 'Path to write the package to (defaults to stdout)')
+		.action((target: string, output: string | undefined, options: Parameters<typeof packageCreate>[1]) =>
+			packageCreate(target, options, output),
+		);
+
+	packageCommand
+		.command('check')
+		.description('Run the read-only compatibility check of a migration package against the current database')
+		.option('--allow-hash-mismatch', 'Skip the source/target hash mismatch warning', false)
+		.argument('<path>', 'Path to migration package file (JSON or YAML)')
+		.action(packageCheck);
+
+	packageCommand
+		.command('apply')
+		.description('Apply a migration package to the current database, resuming from the last completed step')
+		.option('-y, --yes', `Assume "yes" as answer to all prompts and run non-interactively`)
+		.option('-d, --dry-run', 'Run the compatibility check and print the plan without writing anything', false)
+		.option('--allow-hash-mismatch', 'Skip the source/target hash mismatch warning', false)
+		.argument('<path>', 'Path to migration package file (JSON or YAML)')
+		.action(packageApply);
 
 	await emitter.emitInit('cli.after', { program });
 

@@ -1,0 +1,139 @@
+import * as vue0 from "vue";
+
+//#region src/types.d.ts
+type Orientation = "horizontal" | "vertical";
+type Direction = "ltr" | "rtl";
+type Primary = "start" | "end";
+type SizeUnit = "%" | "px";
+interface UiClasses {
+  start?: string;
+  divider?: string;
+  end?: string;
+}
+interface SplitPanelProps {
+  /**
+   * Sets the split panel's orientation
+   * @default 'horizontal'
+   */
+  orientation?: Orientation;
+  /**
+   * Sets the split panel's text direction
+   * @default 'ltr'
+   */
+  direction?: Direction;
+  /** If no primary panel is designated, both panels will resize proportionally when the host element is resized. If a primary panel is designated, it will maintain its size and the other panel will grow or shrink as needed when the panels component is resized */
+  primary?: Primary | undefined;
+  /**
+   * The invisible region around the divider where dragging can occur. This is usually wider than the divider to facilitate easier dragging. CSS value
+   * @default '12px'
+   */
+  dividerHitArea?: string;
+  /**
+   * Whether the size v-model should be in relative percentages or absolute pixels
+   * @default '%'
+   */
+  sizeUnit?: SizeUnit;
+  /**
+   * Disable the manual resizing of the panels
+   * @default false
+   */
+  disabled?: boolean;
+  /**
+   * The minimum allowed size of the primary panel
+   * @default 0
+   */
+  minSize?: number;
+  /** The maximum allowed size of the primary panel */
+  maxSize?: number;
+  /**
+   * Whether to allow the primary panel to be collapsed on enter key on divider or when the collapse threshold is met
+   * @default false
+   */
+  collapsible?: boolean;
+  /** How far to drag beyond the minSize to collapse/expand the primary panel */
+  collapseThreshold?: number;
+  /**
+   * How much of the panel content is visible when the panel is collapsed
+   * @default 0
+   */
+  collapsedSize?: number;
+  /**
+   * How long should the collapse/expand state transition for in ms
+   * @default 0
+   */
+  transitionDuration?: number;
+  /**
+   * CSS transition timing function for the expand transition
+   * @default 'cubic-bezier(0, 0, 0.2, 1)'
+   */
+  transitionTimingFunctionExpand?: string;
+  /**
+   * CSS transition timing function for the collapse transition
+   * @default 'cubic-bezier(0.4, 0, 0.6, 1)'
+   */
+  transitionTimingFunctionCollapse?: string;
+  /**
+   * What size values the divider should snap to
+   * @default []
+   */
+  snapPoints?: number[];
+  /**
+   * How close to the snap point the size should be before the snapping occurs
+   * @default 12
+   */
+  snapThreshold?: number;
+  /**
+   * Inject additional classes into the elements that split-panel renders
+   */
+  ui?: UiClasses;
+}
+//#endregion
+//#region src/SplitPanel.vue.d.ts
+type __VLS_Props = SplitPanelProps;
+type __VLS_ModelProps = {
+  /** Size of the primary panel in either percentages or pixels as defined by the sizeUnit property */"size"?: number; /** Whether the primary column is collapsed or not */
+  "collapsed"?: boolean;
+};
+type __VLS_PublicProps = __VLS_Props & __VLS_ModelProps;
+declare var __VLS_1: {}, __VLS_3: {}, __VLS_5: {};
+type __VLS_Slots = {} & {
+  start?: (props: typeof __VLS_1) => any;
+} & {
+  divider?: (props: typeof __VLS_3) => any;
+} & {
+  end?: (props: typeof __VLS_5) => any;
+};
+declare const __VLS_base: vue0.DefineComponent<__VLS_PublicProps, {
+  collapse: () => boolean;
+  expand: () => boolean;
+  toggle: (val: boolean) => boolean;
+}, {}, {}, {}, vue0.ComponentOptionsMixin, vue0.ComponentOptionsMixin, {
+  "update:size": (value: number) => any;
+  "update:collapsed": (value: boolean) => any;
+}, string, vue0.PublicProps, Readonly<__VLS_PublicProps> & Readonly<{
+  "onUpdate:size"?: ((value: number) => any) | undefined;
+  "onUpdate:collapsed"?: ((value: boolean) => any) | undefined;
+}>, {
+  orientation: Orientation;
+  direction: Direction;
+  dividerHitArea: string;
+  sizeUnit: SizeUnit;
+  disabled: boolean;
+  minSize: number;
+  collapsible: boolean;
+  collapsedSize: number;
+  transitionDuration: number;
+  transitionTimingFunctionExpand: string;
+  transitionTimingFunctionCollapse: string;
+  snapPoints: number[];
+  snapThreshold: number;
+}, {}, {}, {}, string, vue0.ComponentProvideOptions, false, {}, any>;
+declare const __VLS_export: __VLS_WithSlots<typeof __VLS_base, __VLS_Slots>;
+declare const _default: typeof __VLS_export;
+type __VLS_WithSlots<T, S> = T & {
+  new (): {
+    $slots: S;
+  };
+};
+//#endregion
+export { Direction, Orientation, Primary, SizeUnit, _default as SplitPanel, SplitPanelProps, UiClasses };

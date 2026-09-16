@@ -1,0 +1,21 @@
+import "./types-BWrchNCm.js";
+import { t as unplugin } from "./index-DZgEc0YS.js";
+
+//#region src/vite.d.ts
+
+/**
+ * Vite plugin
+ *
+ * @example
+ * ```ts
+ * // vite.config.ts
+ * import yaml from "unplugin-yaml/vite"
+ *
+ * export default defineConfig({
+ *   plugins: [yaml()],
+ * })
+ * ```
+ */
+declare const _default: typeof unplugin.vite;
+//#endregion
+export { _default as default };

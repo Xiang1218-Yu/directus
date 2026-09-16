@@ -1,0 +1,48 @@
+{
+  "name": "native-copyfiles",
+  "version": "2.0.3",
+  "description": "a small JS and CLI util to copy files",
+  "bin": {
+    "copyfiles": "dist/cli.js"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "module": "./dist/index.js",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "/dist",
+    "/src"
+  ],
+  "license": "MIT",
+  "author": "Ghislain B.",
+  "homepage": "https://github.com/ghiscoding/native-copyfiles",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ghiscoding/native-copyfiles.git",
+    "directory": "packages/copyfiles"
+  },
+  "bugs": {
+    "url": "https://github.com/ghiscoding/native-copyfiles/issues"
+  },
+  "dependencies": {
+    "cli-nano": "^1.4.0",
+    "untildify": "^6.0.0"
+  },
+  "engines": {
+    "node": "^22.17.0 || >=24.0.0"
+  },
+  "funding": {
+    "type": "ko_fi",
+    "url": "https://ko-fi.com/ghiscoding"
+  }
+}

@@ -1,0 +1,5 @@
+# @braintrust/bt-linux-arm64
+
+Prebuilt `bt` binary for linux-arm64 (glibc).
+
+Installed automatically as an optional dependency of [`braintrust`](https://www.npmjs.com/package/braintrust), which exposes the `bt` command. Install that package instead.

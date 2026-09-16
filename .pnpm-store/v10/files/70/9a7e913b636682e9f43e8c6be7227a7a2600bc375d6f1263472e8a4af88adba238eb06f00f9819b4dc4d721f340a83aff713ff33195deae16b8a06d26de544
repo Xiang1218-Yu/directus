@@ -1,0 +1,24 @@
+Object.defineProperty(exports, '__esModule', { value: true });
+const require_src = require('./src-BHUamkzE.cjs');
+require('./constants-bWtGtIdS.cjs');
+let unplugin = require("unplugin");
+unplugin = require_src.__toESM(unplugin);
+
+//#region src/esbuild.ts
+/**
+* Esbuild plugin
+*
+* @example
+* ```ts
+* // esbuild.config.js
+* import { build } from "esbuild";
+*
+* build({
+*   plugins: [require("unplugin-yaml/esbuild")()],
+* })
+* ```
+*/
+var esbuild_default = (0, unplugin.createEsbuildPlugin)(require_src.unpluginFactory);
+
+//#endregion
+exports.default = esbuild_default;

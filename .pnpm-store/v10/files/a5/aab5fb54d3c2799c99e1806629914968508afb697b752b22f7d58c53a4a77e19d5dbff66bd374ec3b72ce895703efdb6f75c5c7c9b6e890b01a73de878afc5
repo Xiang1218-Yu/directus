@@ -1,0 +1,21 @@
+import "./types-BWrchNCm.js";
+import { t as unplugin } from "./index-DZgEc0YS.js";
+
+//#region src/farm.d.ts
+
+/**
+ * Farm plugin
+ *
+ * @example
+ * ```ts
+ * // farm.config.ts
+ * import yaml from "unplugin-yaml/farm"
+ *
+ * export default defineConfig({
+ *   plugins: [yaml()],
+ * }
+ * ```
+ */
+declare const _default: typeof unplugin.farm;
+//#endregion
+export { _default as default };

@@ -1,0 +1,21 @@
+import { n as YamlOptions } from "./types-BJRuWNzs.cjs";
+import "./index-DW4U4gC0.cjs";
+import { NuxtModule } from "@nuxt/schema";
+
+//#region src/nuxt.d.ts
+
+/**
+ * Nuxt plugin
+ *
+ * @example
+ * ```ts
+ * // nuxt.config.ts
+ * import yaml from "unplugin-yaml/nuxt"
+ *
+ * export default defineNuxtConfig({
+ *   plugins: [yaml()],
+ * })
+ * ```
+ */
+declare const _default: NuxtModule<YamlOptions>;
+export = _default;

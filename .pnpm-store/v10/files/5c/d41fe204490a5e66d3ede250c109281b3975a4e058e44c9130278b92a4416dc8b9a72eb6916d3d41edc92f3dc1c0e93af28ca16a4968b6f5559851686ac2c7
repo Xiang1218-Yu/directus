@@ -1,0 +1,21 @@
+import "./types-BWrchNCm.js";
+import { t as unplugin } from "./index-DZgEc0YS.js";
+
+//#region src/rspack.d.ts
+
+/**
+ * Rspack plugin
+ *
+ * @example
+ * ```ts
+ * // rspack.config.ts
+ * import yaml from "unplugin-yaml/rspack"
+ *
+ * export default defineConfig({
+ *   plugins: [yaml()],
+ * })
+ * ```
+ */
+declare const _default: typeof unplugin.rspack;
+//#endregion
+export { _default as default };

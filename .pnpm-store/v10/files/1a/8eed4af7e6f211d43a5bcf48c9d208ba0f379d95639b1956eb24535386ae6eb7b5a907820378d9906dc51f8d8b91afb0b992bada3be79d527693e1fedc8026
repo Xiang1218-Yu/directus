@@ -1,0 +1,2 @@
+import { type PackageMetadataWithTime } from '@pnpm/registry.types';
+export declare function filterPkgMetadataByPublishDate(pkgDoc: PackageMetadataWithTime, publishedBy: Date, trustedVersions?: string[]): PackageMetadataWithTime;

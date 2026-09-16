@@ -1,0 +1,68 @@
+{
+  "name": "caret-pos",
+  "version": "2.0.0",
+  "description": "Locate the current position of the caret. A plain JavaScript version of Caret.js.",
+  "main": "lib/bundle/main.min.js",
+  "module": "lib/esm2015/main.js",
+  "typings": "index.d.ts",
+  "scripts": {
+    "prebuild": "rimraf ./lib",
+    "build": "rollup -c",
+    "postbuild": "gulp compress",
+    "prepare": "npm run build",
+    "start": "rollup -c rollup.dev.config.js --watch",
+    "test": "karma start --single-run",
+    "test:dev": "karma start"
+  },
+  "keywords": [
+    "caret",
+    "cursor",
+    "position",
+    "offset"
+  ],
+  "files": [
+    "lib",
+    "src",
+    "index.d.ts",
+    "README.md",
+    "LICENSE-MIT"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/deshiknaves/caret-pos"
+  },
+  "author": "Deshiknaves <nawal.rahim@gmail.com> (https://github.com/deshiknaves/)",
+  "contributors": [
+    "Aram Drevekenin <grimsniffer@gmail.com>  (https://github.com/imsnif/)"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@babel/core": "^7.10.2",
+    "@babel/plugin-syntax-export-extensions": "^7.0.0-beta.32",
+    "@babel/plugin-transform-modules-commonjs": "^7.10.1",
+    "@babel/plugin-transform-runtime": "^7.10.1",
+    "@babel/preset-env": "^7.10.2",
+    "@rollup/plugin-babel": "^5.0.2",
+    "@rollup/plugin-commonjs": "^12.0.0",
+    "@rollup/plugin-node-resolve": "^8.0.0",
+    "eslint": "^7.1.0",
+    "eslint-plugin-jasmine": "^4.1.1",
+    "gulp": "^4.0.2",
+    "gulp-rename": "^2.0.0",
+    "gulp-sourcemaps": "^2.6.5",
+    "gulp-uglify": "^3.0.2",
+    "jasmine": "^3.5.0",
+    "karma": "^5.0.9",
+    "karma-babel-preprocessor": "^8.0.1",
+    "karma-chrome-launcher": "^3.1.0",
+    "karma-jasmine": "^3.3.1",
+    "karma-rollup-preprocessor": "^7.0.5",
+    "puppeteer": "^3.2.0",
+    "rimraf": "^3.0.2",
+    "rollup": "^2.12.0",
+    "rollup-plugin-eslint": "^7.0.0",
+    "rollup-plugin-livereload": "^1.3.0",
+    "rollup-plugin-serve": "^1.0.1"
+  },
+  "dependencies": {}
+}

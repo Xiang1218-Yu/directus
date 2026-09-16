@@ -1,0 +1,62 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.parseBareSpecifier = parseBareSpecifier;
+exports.parseJsrSpecifierToRegistryPackageSpec = parseJsrSpecifierToRegistryPackageSpec;
+const resolving_jsr_specifier_parser_1 = require("@pnpm/resolving.jsr-specifier-parser");
+const parse_npm_tarball_url_1 = __importDefault(require("parse-npm-tarball-url"));
+const version_selector_type_1 = __importDefault(require("version-selector-type"));
+function parseBareSpecifier(bareSpecifier, alias, defaultTag, registry) {
+    let name = alias;
+    if (bareSpecifier.startsWith('npm:')) {
+        bareSpecifier = bareSpecifier.slice(4);
+        const index = bareSpecifier.lastIndexOf('@');
+        if (index < 1) {
+            name = bareSpecifier;
+            bareSpecifier = defaultTag;
+        }
+        else {
+            name = bareSpecifier.slice(0, index);
+            bareSpecifier = bareSpecifier.slice(index + 1);
+        }
+    }
+    if (name) {
+        const selector = (0, version_selector_type_1.default)(bareSpecifier);
+        if (selector != null) {
+            return {
+                fetchSpec: selector.normalized,
+                name,
+                type: selector.type,
+            };
+        }
+    }
+    if (bareSpecifier.startsWith(registry)) {
+        const pkg = (0, parse_npm_tarball_url_1.default)(bareSpecifier);
+        if (pkg != null) {
+            return {
+                fetchSpec: pkg.version,
+                name: pkg.name,
+                normalizedBareSpecifier: bareSpecifier,
+                type: 'version',
+            };
+        }
+    }
+    return null;
+}
+function parseJsrSpecifierToRegistryPackageSpec(rawSpecifier, alias, defaultTag) {
+    const spec = (0, resolving_jsr_specifier_parser_1.parseJsrSpecifier)(rawSpecifier, alias);
+    if (!spec?.npmPkgName)
+        return null;
+    const selector = (0, version_selector_type_1.default)(spec.versionSelector ?? defaultTag);
+    if (selector == null)
+        return null;
+    return {
+        fetchSpec: selector.normalized,
+        name: spec.npmPkgName,
+        type: selector.type,
+        jsrPkgName: spec.jsrPkgName,
+    };
+}
+//# sourceMappingURL=parseBareSpecifier.js.map

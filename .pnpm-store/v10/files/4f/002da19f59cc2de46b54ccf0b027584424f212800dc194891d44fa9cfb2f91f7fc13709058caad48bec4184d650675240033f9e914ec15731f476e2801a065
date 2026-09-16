@@ -1,0 +1,2 @@
+import { type RegistryPackageSpec } from './parseBareSpecifier.js';
+export declare function toRaw(spec: RegistryPackageSpec): string;

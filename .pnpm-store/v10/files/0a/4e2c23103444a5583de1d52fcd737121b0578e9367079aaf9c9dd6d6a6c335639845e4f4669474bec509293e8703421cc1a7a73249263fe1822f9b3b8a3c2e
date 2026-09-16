@@ -1,0 +1,3 @@
+import { n as PLUGIN_NAME, t as NUXT_CONFIG_KEY } from "./constants-DEnDBOsM.js";
+
+export { NUXT_CONFIG_KEY, PLUGIN_NAME };

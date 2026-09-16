@@ -1,0 +1,14 @@
+import { FetchError, type FetchErrorRequest, type FetchErrorResponse } from '@pnpm/error';
+import { type FetchFromRegistry, type RetryTimeoutOptions } from '@pnpm/fetching-types';
+import { type PackageMeta } from '@pnpm/registry.types';
+export declare class RegistryResponseError extends FetchError {
+    readonly pkgName: string;
+    constructor(request: FetchErrorRequest, response: FetchErrorResponse, pkgName: string);
+}
+export interface FetchMetadataFromFromRegistryOptions {
+    fetch: FetchFromRegistry;
+    retry: RetryTimeoutOptions;
+    timeout: number;
+    fetchWarnTimeoutMs: number;
+}
+export declare function fetchMetadataFromFromRegistry(fetchOpts: FetchMetadataFromFromRegistryOptions, pkgName: string, registry: string, authHeaderValue?: string): Promise<PackageMeta>;

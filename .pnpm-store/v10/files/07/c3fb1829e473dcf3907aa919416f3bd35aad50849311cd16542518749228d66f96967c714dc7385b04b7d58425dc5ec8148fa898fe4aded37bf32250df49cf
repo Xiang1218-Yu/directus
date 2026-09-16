@@ -1,0 +1,39 @@
+Object.defineProperty(exports, '__esModule', { value: true });
+const require_src = require('./src-BHUamkzE.cjs');
+const require_constants = require('./constants-bWtGtIdS.cjs');
+const require_vite = require('./vite-BKwyYsPo.cjs');
+const require_webpack = require('./webpack-CeajN0WA.cjs');
+let __nuxt_kit = require("@nuxt/kit");
+__nuxt_kit = require_src.__toESM(__nuxt_kit);
+
+//#region src/nuxt.ts
+/**
+* Nuxt plugin
+*
+* @example
+* ```ts
+* // nuxt.config.ts
+* import yaml from "unplugin-yaml/nuxt"
+*
+* export default defineNuxtConfig({
+*   plugins: [yaml()],
+* })
+* ```
+*/
+var nuxt_default = (0, __nuxt_kit.defineNuxtModule)({
+	meta: {
+		name: require_constants.PLUGIN_NAME,
+		configKey: require_constants.NUXT_CONFIG_KEY
+	},
+	setup(options, nuxt) {
+		nuxt.options.typescript.tsConfig ||= {};
+		nuxt.options.typescript.tsConfig.compilerOptions ||= {};
+		nuxt.options.typescript.tsConfig.compilerOptions.types ||= [];
+		nuxt.options.typescript.tsConfig.compilerOptions.types.push("unplugin-yaml/types");
+		(0, __nuxt_kit.addWebpackPlugin)(() => require_webpack.webpack_default(options));
+		(0, __nuxt_kit.addVitePlugin)(() => require_vite.vite_default(options));
+	}
+});
+
+//#endregion
+exports.default = nuxt_default;

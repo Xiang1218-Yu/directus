@@ -1,0 +1,62 @@
+{
+  "name": "@directus/vue-split-panel",
+  "version": "0.8.9",
+  "description": "Split panel component for Vue based on WebAwesome Split Panel",
+  "keywords": [
+    "components",
+    "panel",
+    "splitter",
+    "ui",
+    "vue"
+  ],
+  "homepage": "https://github.com/directus/vue-split-panel",
+  "bugs": {
+    "url": "https://github.com/directus/vue-split-panel/issues"
+  },
+  "author": "Rijk van Zanten <rijkvanzanten@me.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/directus/vue-split-panel.git"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json",
+    "./index.css": "./dist/index.css"
+  },
+  "dependencies": {
+    "@vueuse/core": "14.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "25.3.0",
+    "@vitejs/plugin-vue": "6.0.4",
+    "@vitest/coverage-v8": "4.0.18",
+    "@vue/test-utils": "2.4.6",
+    "bumpp": "10.4.1",
+    "happy-dom": "20.6.3",
+    "typescript": "5.9.3",
+    "vite-plus": "latest",
+    "vue": "3.5.28"
+  },
+  "peerDependencies": {
+    "vue": "^3.5.0"
+  },
+  "scripts": {
+    "build": "vite lib",
+    "dev": "vite lib --watch",
+    "playground": "vite dev",
+    "test": "vite test",
+    "test:coverage": "vite test --coverage",
+    "release": "bumpp && pnpm publish",
+    "lint": "vite lint --type-aware --type-check",
+    "lint:fix": "vite lint --fix"
+  }
+}
