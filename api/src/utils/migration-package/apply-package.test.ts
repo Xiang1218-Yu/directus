@@ -248,4 +248,68 @@ describe('applyMigrationPackage', () => {
 			expect(applyDiff).not.toHaveBeenCalled();
 		});
 	});
+
+	describe('read-only planning (check / --dry-run)', () => {
+		test('never creates the bookkeeping table when ensureTable is false', async () => {
+			const pkg = buildMigrationPackage(createDiff(['a']) as any, { id: 'pkg-readonly' });
+
+			await planMigrationPackage(pkg, {
+				database: database as unknown as Knex,
+				ensureTable: false,
+			});
+
+			expect(ensurePackageStepsTable).not.toHaveBeenCalled();
+
+			// Records are fetched in read-only mode (hasTable probe, no create)
+			expect(getPackageRecords).toHaveBeenCalledWith(database, 'pkg-readonly', 'up', {
+				ensureTable: false,
+			});
+		});
+
+		test('rollback dry-run planning (down + ensureTable false) never creates the table', async () => {
+			const up = createDiff(['a']);
+
+			const down = {
+				collections: [{ collection: 'a', diff: [{ kind: DiffKind.DELETE, lhs: { collection: 'a' } }] }],
+				fields: [],
+				systemFields: [],
+				relations: [],
+			};
+
+			const pkg = buildMigrationPackage(up as any, { id: 'pkg-rb-readonly', rollbackDiff: down as any });
+
+			vi.mocked(getPackageRecords).mockImplementation(((_db: Knex, _id: string, direction: string) =>
+				Promise.resolve(
+					direction === 'up'
+						? [
+								{
+									package: 'pkg-rb-readonly',
+									direction: 'up',
+									step: pkg.steps[0]!.id,
+									status: 'completed',
+									error: null,
+									timestamp: new Date(),
+								},
+							]
+						: [],
+				)) as any);
+
+			vi.mocked(getSnapshot).mockResolvedValue({
+				...emptyCurrentSnapshot(),
+				collections: [{ collection: 'a', meta: { collection: 'a' }, schema: { name: 'a' } }],
+			} as any);
+
+			await planMigrationPackage(pkg, {
+				database: database as unknown as Knex,
+				direction: 'down',
+				ensureTable: false,
+			});
+
+			expect(ensurePackageStepsTable).not.toHaveBeenCalled();
+
+			expect(getPackageRecords).toHaveBeenCalledWith(database, 'pkg-rb-readonly', 'down', {
+				ensureTable: false,
+			});
+		});
+	});
 });

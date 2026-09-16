@@ -94,16 +94,26 @@ describe('schema package rollback command', () => {
 		expect(process.exit).toHaveBeenCalledWith(1);
 	});
 
-	test('dry-run plans in the down direction without applying', async () => {
+	test('dry-run plans in the down direction without applying or writing anything', async () => {
 		await packageRollback('pkg.json', { yes: false, dryRun: true });
 
 		expect(planMigrationPackage).toHaveBeenCalledWith(
 			expect.anything(),
-			expect.objectContaining({ direction: 'down' }),
+			expect.objectContaining({ direction: 'down', ensureTable: false }),
 		);
 
+		// No write path is touched: no application, no license checks
 		expect(applyMigrationPackage).not.toHaveBeenCalled();
 		expect(process.exit).toHaveBeenCalledWith(0);
+	});
+
+	test('non-dry-run plans with table creation enabled', async () => {
+		await packageRollback('pkg.json', { yes: true, dryRun: false });
+
+		expect(planMigrationPackage).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ direction: 'down', ensureTable: true }),
+		);
 	});
 
 	test('applies with --yes in the down direction', async () => {

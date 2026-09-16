@@ -14,7 +14,7 @@ import installSeeds from '../../database/seeds/run.js';
 import { applyDiff } from '../schema/apply-diff.js';
 import { getSnapshotDiff } from '../schema/get-snapshot-diff.js';
 import { getSnapshot } from '../schema/get-snapshot.js';
-import { applyMigrationPackage } from './apply-package.js';
+import { applyMigrationPackage, planMigrationPackage } from './apply-package.js';
 import { buildMigrationPackage } from './build-package.js';
 import { parseMigrationPackage, serializeMigrationPackage } from './io.js';
 import { validateMigrationPackage } from './validate-package.js';
@@ -201,6 +201,18 @@ describe('migration package on a real sqlite database', () => {
 		// 5) Roll the package back for real
 		expect(parsed.rollback?.length).toBeGreaterThan(0);
 
+		// 5a) A rollback dry-run is read-only: the plan resolves, no steps are
+		// applied and the schema is untouched afterwards.
+		const dryPlan = await planMigrationPackage(parsed, {
+			database: knex,
+			direction: 'down',
+			ensureTable: false,
+		});
+
+		expect(dryPlan.compatibility.pending.length).toBeGreaterThan(0);
+		expect(await knex.schema.hasTable('posts')).toBe(true);
+		expect(await knex('directus_schema_migration_steps').where({ direction: 'down' }).select('step')).toEqual([]);
+
 		await applyMigrationPackage(parsed, { database: knex, direction: 'down' });
 
 		expect(await knex.schema.hasTable('posts')).toBe(false);
@@ -216,6 +228,9 @@ describe('migration package on a real sqlite database', () => {
 		// and rolled back a second time
 		await applyMigrationPackage(parsed, { database: knex, direction: 'down' });
 		expect(await knex.schema.hasTable('posts')).toBe(false);
+
+		// Leave the database in a clean (system-only) state for the next test
+		await knex('directus_schema_migration_steps').del();
 	}, 60000);
 
 	test('meta-only change on an existing managed field is a single update-field step', async () => {
@@ -267,6 +282,9 @@ describe('migration package on a real sqlite database', () => {
 			// Reproduce the original bug condition: craft a "before" snapshot
 			// where label exists with meta: null but the same schema.
 			const labelAfter = after.fields.find((f) => f.collection === 'widgets' && f.field === 'label')!;
+
+			// Build a "before" snapshot from the live one by stripping only the
+			// meta object (physical column still present, unmanaged).
 			const beforeWithLabel = structuredClone(after);
 
 			beforeWithLabel.fields = beforeWithLabel.fields.map((f) =>
@@ -276,10 +294,13 @@ describe('migration package on a real sqlite database', () => {
 			const diff = getSnapshotDiff(beforeWithLabel, after);
 
 			const labelDiffs = diff.fields.filter((f) => f.collection === 'widgets' && f.field === 'label');
-			expect(labelDiffs).toHaveLength(1);
 
-			// Meta appearance can be expressed either as nested NEW (null → object)
-			// or nested EDIT (empty meta object → populated meta object)
+			// The label field must appear exactly once in the diff and only for meta
+			expect(labelDiffs).toHaveLength(1);
+			expect(labelDiffs[0]!.diff.every((c) => c.path?.[0] === 'meta')).toBe(true);
+
+			// Meta appearance on an existing field is expressed at path 'meta'
+			// (deep-diff emits EDIT for null → object, nested NEW for undefined → object)
 			const firstChange = labelDiffs[0]!.diff[0]!;
 			expect(['N', 'E']).toContain(firstChange.kind);
 			expect(firstChange.path?.[0]).toBe('meta');

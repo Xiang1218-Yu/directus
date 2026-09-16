@@ -46,6 +46,9 @@ export async function packageRollback(packagePath: string, options: PackageRollb
 			database,
 			allowHashMismatch: options.allowHashMismatch,
 			direction: 'down',
+			// A dry run is strictly read-only: it must not create the
+			// bookkeeping table nor write any progress rows.
+			ensureTable: options.dryRun === false,
 		});
 
 		const planText = formatPlan(pkg.rollback, plan.compatibility);
