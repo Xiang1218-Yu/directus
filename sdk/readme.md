@@ -72,6 +72,48 @@ const client = createDirectus<Schema>('https://directus.example.com')
 // do authenticated requests
 ```
 
+## Offline Queue
+
+The optional `offline()` composable adds a durable request queue on top of `rest()` (and optionally
+`authentication()`). Requests marked queueable are stored while the network is unavailable and
+replayed once connectivity returns:
+
+- **Dependency ordered replay** — declare `dependsOn` references so requests replay in the right order.
+- **Idempotency keys** — queued requests send an `Idempotency-Key` header; duplicate submissions with
+  the same key are collapsed into one request.
+- **Bounded retries** — network errors and `5xx` responses retry with exponential backoff
+  (`maxRetries`, default 3); `4xx` validation errors and authentication errors fail immediately.
+- **Cancellation** — every queued request returns a promise with `.cancel()`, backed by an
+  `AbortController` for in-flight replays.
+- **Token refresh** — on `401/403` the queue single-flights `authentication()`'s refresh and replays
+  once, without refreshing more than once per flush cycle.
+- **Pluggable storage** — in-memory by default, or inject a persistence adapter (e.g.
+  `webStorageQueueAdapter(localStorage)`) to survive page reloads. Bearer tokens are never persisted.
+
+`FormData` uploads and `POST`/`PATCH` requests without an idempotency key are rejected at enqueue
+time unless explicitly opted in (`allowFileUploads`, `allowNonIdempotent`).
+
+```ts
+import { createDirectus, rest, authentication, offline, webStorageQueueAdapter, updateItem } from '@directus/sdk';
+
+const client = createDirectus<Schema>('https://directus.example.com')
+	.with(authentication('json'))
+	.with(rest())
+	.with(offline({ storage: webStorageQueueAdapter(localStorage) }));
+
+const queued = client.requestQueued(updateItem('articles', 1, { title: 'Saved later' }), {
+	idempotencyKey: 'article-1-title',
+});
+
+// resolves after the replay with the normal SDK return type; rejects with the same SDK error types
+await queued;
+
+// control surface
+queued.cancel();
+await client.flush(); // manual replay (concurrent calls are single-flighted)
+client.destroy(); // abort in-flight requests; queued entries stay persisted for reload recovery
+```
+
 ## Real-Time
 
 The `realtime()` extension allows you to work with a Directus REST WebSocket.

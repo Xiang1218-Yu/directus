@@ -75,6 +75,12 @@ export interface QueueEntry {
 		onRequest?: RequestTransformer;
 		onResponse?: ResponseTransformer;
 	};
+	/** Settled value, kept until the terminal entry is pruned. */
+	settledResult?: unknown;
+	/** Settled rejection reason, kept until the terminal entry is pruned. */
+	settledError?: unknown;
+	/** Cancellable promise returned by enqueue, used to collapse duplicate submissions. */
+	promise?: QueuedRequest<unknown>;
 }
 
 /**
@@ -116,6 +122,12 @@ export interface OfflineQueueOptions {
 	retryDelay?: RetryDelayFn;
 	/** Flush automatically when the network monitor reports connectivity. Defaults to true. */
 	flushOnReconnect?: boolean;
+	/**
+	 * Destroy the queue (abort in-flight replays, detach listeners) when the
+	 * page is unloaded (`pagehide`). Queued entries remain in the storage
+	 * adapter and are recovered on reload. Defaults to true in browsers.
+	 */
+	destroyOnUnload?: boolean;
 	hooks?: QueueEventHooks;
 }
 

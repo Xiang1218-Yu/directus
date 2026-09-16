@@ -67,7 +67,7 @@ const isDomAbortError = (error: unknown): boolean => {
 
 /** Base class for errors produced by the offline queue itself. */
 export class OfflineQueueError extends Error {
-	override readonly name = 'OfflineQueueError';
+	declare name: string;
 }
 
 /**
