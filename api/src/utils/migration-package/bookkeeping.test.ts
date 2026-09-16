@@ -5,19 +5,38 @@ import { MIGRATION_PACKAGE_STEPS_TABLE } from './types.js';
 
 describe('getPackageRecords', () => {
 	test('ensures the table exists by default', async () => {
-		const rows = [{ package: 'p', step: 's', status: 'completed', error: null, timestamp: new Date() }];
+		const rows = [
+			{ package: 'p', direction: 'up', step: 's', status: 'completed', error: null, timestamp: new Date() },
+		];
 
 		const database = {
-			schema: { hasTable: async () => true },
+			schema: { hasTable: async () => true, hasColumn: async () => true },
 			select: () => database,
 			from: () => database,
 			where: () => database,
 			orderBy: async () => rows,
 		};
 
-		const result = await getPackageRecords(database as unknown as Knex, 'p');
+		const result = await getPackageRecords(database as unknown as Knex, 'p', 'up');
 
 		expect(result).toEqual(rows);
+	});
+
+	test('filters records by direction', async () => {
+		const rows: unknown[] = [];
+		const where = vi.fn(() => database);
+
+		const database = {
+			schema: { hasTable: async () => true, hasColumn: async () => true },
+			select: () => database,
+			from: () => database,
+			where,
+			orderBy: async () => rows,
+		};
+
+		await getPackageRecords(database as unknown as Knex, 'p', 'down');
+
+		expect(where).toHaveBeenCalledWith({ package: 'p', direction: 'down' });
 	});
 
 	test('does not create the table in read-only mode when it is missing', async () => {
@@ -31,7 +50,7 @@ describe('getPackageRecords', () => {
 			},
 		};
 
-		const result = await getPackageRecords(database as unknown as Knex, 'p', { ensureTable: false });
+		const result = await getPackageRecords(database as unknown as Knex, 'p', 'up', { ensureTable: false });
 
 		expect(result).toEqual([]);
 		expect(createTable).not.toHaveBeenCalled();

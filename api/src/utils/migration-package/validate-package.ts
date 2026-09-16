@@ -110,6 +110,7 @@ const packageJoiSchema = Joi.object({
 	fromHash: Joi.string(),
 	toHash: Joi.string(),
 	steps: Joi.array().items(stepSchema).min(0).required(),
+	rollback: Joi.array().items(stepSchema).min(0),
 });
 
 /** Value type of the {@link DiffKind} const object ('N' | 'D' | 'E' | 'A'). */
@@ -269,28 +270,36 @@ export function validateMigrationPackage(input: unknown): asserts input is Migra
 	const { error } = packageJoiSchema.validate(pkg, { allowUnknown: false });
 	if (error) throw new InvalidPayloadError({ reason: error.message });
 
-	const stepIds = new Set<string>();
+	const validateStepList = (stepList: MigrationPackageStep[], label: string): void => {
+		const ids = new Set<string>();
 
-	for (const [index, step] of pkg.steps!.entries()) {
-		validateStepShape(step);
+		for (const [index, step] of stepList.entries()) {
+			validateStepShape(step);
 
-		if (stepIds.has(step.id)) {
-			throw new InvalidPayloadError({
-				reason: `Migration package contains a duplicate step id "${step.id}"`,
-			});
+			if (ids.has(step.id)) {
+				throw new InvalidPayloadError({
+					reason: `Migration package ${label} list contains a duplicate step id "${step.id}"`,
+				});
+			}
+
+			ids.add(step.id);
+
+			// Steps are applied in array order; bookkeeping relies on contiguous
+			// numbering prefixes so keep ids numeric and gap-free.
+			const expectedId = `${String(index + 1).padStart(4, '0')}-`;
+
+			if (!step.id.startsWith(expectedId)) {
+				throw new InvalidPayloadError({
+					reason: `Migration package ${label} step at index ${index} has id "${step.id}" but expected it to start with "${expectedId}"`,
+				});
+			}
 		}
+	};
 
-		stepIds.add(step.id);
+	validateStepList(pkg.steps!, 'steps');
 
-		// Steps are applied in array order; the bookkeeping relies on contiguous
-		// numbering prefixes so keep ids numeric and gap-free.
-		const expectedId = `${String(index + 1).padStart(4, '0')}-`;
-
-		if (!step.id.startsWith(expectedId)) {
-			throw new InvalidPayloadError({
-				reason: `Migration package step at index ${index} has id "${step.id}" but expected it to start with "${expectedId}"`,
-			});
-		}
+	if (pkg.rollback) {
+		validateStepList(pkg.rollback, 'rollback');
 	}
 }
 

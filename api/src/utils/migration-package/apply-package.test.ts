@@ -5,8 +5,15 @@ import { getSchema } from '../get-schema.js';
 import { applyDiff } from '../schema/apply-diff.js';
 import { getSnapshot } from '../schema/get-snapshot.js';
 import { applyMigrationPackage, MigrationPackageApplyError, planMigrationPackage } from './apply-package.js';
-import { ensurePackageStepsTable, getPackageRecords, recordStepCompleted, recordStepFailed } from './bookkeeping.js';
+import {
+	clearPackageRecords,
+	ensurePackageStepsTable,
+	getPackageRecords,
+	recordStepCompleted,
+	recordStepFailed,
+} from './bookkeeping.js';
 import { buildMigrationPackage } from './build-package.js';
+import type { MigrationPackageStepRecord } from './types.js';
 
 vi.mock('../schema/get-snapshot.js', () => ({
 	getSnapshot: vi.fn(() =>
@@ -68,6 +75,7 @@ describe('applyMigrationPackage', () => {
 		vi.mocked(getPackageRecords).mockResolvedValue([]);
 		vi.mocked(recordStepCompleted).mockResolvedValue(undefined);
 		vi.mocked(recordStepFailed).mockResolvedValue(undefined);
+		vi.mocked(clearPackageRecords).mockResolvedValue(undefined);
 	});
 
 	test('applies every step in its own transaction and records completion', async () => {
@@ -82,16 +90,23 @@ describe('applyMigrationPackage', () => {
 		expect(applyDiff).toHaveBeenCalledTimes(2);
 
 		for (const step of pkg.steps) {
-			expect(recordStepCompleted).toHaveBeenCalledWith(trx, 'pkg-1', step.id);
+			expect(recordStepCompleted).toHaveBeenCalledWith(trx, 'pkg-1', 'up', step.id);
 		}
 	});
 
 	test('skips steps recorded as completed without opening a transaction', async () => {
 		const pkg = buildMigrationPackage(createDiff(['a', 'b']) as any, { id: 'pkg-1' });
 
-		vi.mocked(getPackageRecords).mockResolvedValue([
-			{ package: 'pkg-1', step: pkg.steps[0]!.id, status: 'completed', error: null, timestamp: new Date() },
-		]);
+		const completedRecord: MigrationPackageStepRecord = {
+			package: 'pkg-1',
+			direction: 'up',
+			step: pkg.steps[0]!.id,
+			status: 'completed',
+			error: null,
+			timestamp: new Date(),
+		};
+
+		vi.mocked(getPackageRecords).mockResolvedValue([completedRecord]);
 
 		const result = await applyMigrationPackage(pkg, { database: database as unknown as Knex });
 
@@ -113,11 +128,12 @@ describe('applyMigrationPackage', () => {
 		// Second step's transaction failed; no later step ran
 		expect(applyDiff).toHaveBeenCalledTimes(2);
 		expect(recordStepCompleted).toHaveBeenCalledTimes(1);
-		expect(recordStepCompleted).toHaveBeenCalledWith(trx, 'pkg-1', pkg.steps[0]!.id);
+		expect(recordStepCompleted).toHaveBeenCalledWith(trx, 'pkg-1', 'up', pkg.steps[0]!.id);
 
 		// The failure marker is written in its own (outer) transaction, not the rolled-back one
 		expect(recordStepFailed).toHaveBeenCalledTimes(1);
-		expect(recordStepFailed).toHaveBeenCalledWith(database, 'pkg-1', pkg.steps[1]!.id, expect.any(Error));
+
+		expect(recordStepFailed).toHaveBeenCalledWith(database, 'pkg-1', 'up', pkg.steps[1]!.id, expect.any(Error));
 	});
 
 	test('planMigrationPackage validates the package before touching the schema', async () => {
@@ -125,5 +141,111 @@ describe('applyMigrationPackage', () => {
 
 		expect(ensurePackageStepsTable).not.toHaveBeenCalled();
 		expect(getSchema).not.toHaveBeenCalled();
+	});
+
+	describe('rollback (direction down)', () => {
+		const createRoundTripPackage = () => {
+			const up = createDiff(['a']);
+
+			const down = {
+				collections: [{ collection: 'a', diff: [{ kind: DiffKind.DELETE, lhs: { collection: 'a' } }] }],
+				fields: [],
+				systemFields: [],
+				relations: [],
+			};
+
+			return buildMigrationPackage(up as any, { id: 'pkg-rb', rollbackDiff: down as any });
+		};
+
+		test('applies rollback steps in the down direction', async () => {
+			const pkg = createRoundTripPackage();
+
+			expect(pkg.rollback).toHaveLength(1);
+
+			// Target snapshot already contains the collection (rollback deletes it)
+			vi.mocked(getSnapshot).mockResolvedValue({
+				...emptyCurrentSnapshot(),
+				collections: [{ collection: 'a', meta: { collection: 'a' }, schema: { name: 'a' } }],
+			} as any);
+
+			const allRecords: MigrationPackageStepRecord[] = [
+				{
+					package: 'pkg-rb',
+					direction: 'up',
+					step: pkg.steps[0]!.id,
+					status: 'completed',
+					error: null,
+					timestamp: new Date(),
+				},
+			];
+
+			vi.mocked(getPackageRecords).mockImplementation(((_db: Knex, _id: string, direction: string) =>
+				Promise.resolve(direction === 'up' ? allRecords : [])) as any);
+
+			const result = await applyMigrationPackage(pkg, {
+				database: database as unknown as Knex,
+				direction: 'down',
+			});
+
+			expect(result.applied).toEqual(pkg.rollback!.map((step) => step.id));
+
+			expect(recordStepCompleted).toHaveBeenCalledWith(trx, 'pkg-rb', 'down', pkg.rollback![0]!.id);
+
+			// After completing the rollback both directions' bookkeeping is cleared
+			expect(clearPackageRecords).toHaveBeenCalledWith(trx, 'pkg-rb', 'down');
+			expect(clearPackageRecords).toHaveBeenCalledWith(trx, 'pkg-rb', 'up');
+		});
+
+		test('clears bookkeeping of both directions once the rollback is fully complete (incl. resumed runs)', async () => {
+			const pkg = createRoundTripPackage();
+
+			vi.mocked(getSnapshot).mockResolvedValue({
+				...emptyCurrentSnapshot(),
+				// Collection is already gone after the resumed step
+				collections: [],
+			} as any);
+
+			const allRecords: MigrationPackageStepRecord[] = [
+				{
+					package: 'pkg-rb',
+					direction: 'up',
+					step: pkg.steps[0]!.id,
+					status: 'completed',
+					error: null,
+					timestamp: new Date(),
+				},
+			];
+
+			vi.mocked(getPackageRecords).mockImplementation(((_db: Knex, _id: string, direction: string) =>
+				Promise.resolve(
+					direction === 'up'
+						? allRecords
+						: [
+								{
+									package: 'pkg-rb',
+									direction: 'down',
+									step: pkg.rollback![0]!.id,
+									status: 'completed',
+									error: null,
+									timestamp: new Date(),
+								},
+							],
+				)) as any);
+
+			await applyMigrationPackage(pkg, { database: database as unknown as Knex, direction: 'down' });
+
+			expect(clearPackageRecords).toHaveBeenCalledTimes(2);
+		});
+
+		test('refuses to roll back a package without rollback steps', async () => {
+			const pkg = buildMigrationPackage(createDiff(['a']) as any, { id: 'pkg-norb' });
+			vi.mocked(getPackageRecords).mockResolvedValue([]);
+
+			await expect(
+				applyMigrationPackage(pkg, { database: database as unknown as Knex, direction: 'down' }),
+			).rejects.toThrow(/does not contain rollback steps/);
+
+			expect(applyDiff).not.toHaveBeenCalled();
+		});
 	});
 });

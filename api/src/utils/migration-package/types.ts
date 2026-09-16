@@ -13,6 +13,9 @@ export const MIGRATION_PACKAGE_KIND = 'directus.schema-migration-package';
 export const MIGRATION_PACKAGE_VERSION = 1;
 export const MIGRATION_PACKAGE_STEPS_TABLE = 'directus_schema_migration_steps';
 
+/** Forward application ("to" snapshot) or rollback ("from" snapshot). */
+export type MigrationPackageDirection = 'up' | 'down';
+
 export type MigrationPackageStepKind =
 	| 'create-collection'
 	| 'update-collection'
@@ -70,11 +73,18 @@ export type MigrationPackage = {
 	/** Hash of the target snapshot, if it was available. */
 	toHash?: string | undefined;
 	steps: MigrationPackageStep[];
+	/**
+	 * Steps reverting the package back to the "from" snapshot. Present when the
+	 * package was generated from two full snapshots. Applied in array order by
+	 * `schema package rollback`.
+	 */
+	rollback?: MigrationPackageStep[] | undefined;
 };
 
 /** A row of the {@link MIGRATION_PACKAGE_STEPS_TABLE} bookkeeping table. */
 export type MigrationPackageStepRecord = {
 	package: string;
+	direction: MigrationPackageDirection;
 	step: string;
 	status: Exclude<MigrationPackageStepStatus, 'pending'>;
 	error: string | null;

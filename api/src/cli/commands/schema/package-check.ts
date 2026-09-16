@@ -3,10 +3,13 @@ import getDatabase, { isInstalled, validateDatabaseConnection } from '../../../d
 import { useLogger } from '../../../logger/index.js';
 import { planMigrationPackage } from '../../../utils/migration-package/apply-package.js';
 import { readMigrationPackage } from '../../../utils/migration-package/io.js';
+import type { MigrationPackageDirection } from '../../../utils/migration-package/types.js';
 import { formatPlan } from './plan-format.js';
 
 export interface PackageCheckOptions {
 	allowHashMismatch?: boolean | undefined;
+	/** Check the rollback ('down') plan instead of the forward plan. */
+	rollback?: boolean | undefined;
 }
 
 /**
@@ -29,18 +32,22 @@ export async function packageCheck(packagePath: string, options: PackageCheckOpt
 		}
 
 		const pkg = await readMigrationPackage(filename);
+		const direction: MigrationPackageDirection = options.rollback ? 'down' : 'up';
 
 		const plan = await planMigrationPackage(pkg, {
 			database,
 			allowHashMismatch: options.allowHashMismatch,
 			ensureTable: false,
+			direction,
 		});
 
+		const steps = direction === 'down' ? (pkg.rollback ?? []) : pkg.steps;
+
 		// eslint-disable-next-line no-console
-		console.log(formatPlan(pkg.steps, plan.compatibility));
+		console.log(formatPlan(steps, plan.compatibility));
 
 		logger.info(
-			`Compatibility check passed: ${plan.compatibility.pending.length} pending, ` +
+			`Compatibility check passed (${direction}): ${plan.compatibility.pending.length} pending, ` +
 				`${plan.compatibility.completed.length} already completed.`,
 		);
 

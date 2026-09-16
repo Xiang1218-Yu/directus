@@ -189,14 +189,19 @@ describe('createCli', () => {
 			);
 		});
 
-		test('Should register schema package create/check/apply subcommands', async () => {
+		test('Should register schema package create/check/apply/rollback subcommands', async () => {
 			const schemaCommand = program.commands.find((command) => command.name() === 'schema');
 			expect(schemaCommand).toBeDefined();
 
 			const packageCommand = schemaCommand!.commands.find((command) => command.name() === 'package');
 			expect(packageCommand).toBeDefined();
 
-			expect(packageCommand!.commands.map((command) => command.name()).sort()).toEqual(['apply', 'check', 'create']);
+			expect(packageCommand!.commands.map((command) => command.name()).sort()).toEqual([
+				'apply',
+				'check',
+				'create',
+				'rollback',
+			]);
 		});
 
 		test('Should parse schema package apply arguments and options', async () => {

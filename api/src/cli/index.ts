@@ -13,6 +13,7 @@ import { apply } from './commands/schema/apply.js';
 import { packageApply } from './commands/schema/package-apply.js';
 import { packageCheck } from './commands/schema/package-check.js';
 import { packageCreate } from './commands/schema/package-create.js';
+import { packageRollback } from './commands/schema/package-rollback.js';
 import { snapshot } from './commands/schema/snapshot.js';
 import keyGenerate from './commands/security/key.js';
 import secretGenerate from './commands/security/secret.js';
@@ -133,6 +134,7 @@ export async function createCli(): Promise<Command> {
 		.option('--id <value>', 'Explicit package id used for bookkeeping (defaults to a timestamped id)')
 		.option('--author <value>', 'Author metadata written into the package')
 		.option('--description <value>', 'Description metadata written into the package for reviewers')
+		.option('--no-rollback', 'Omit the rollback steps that revert the package back to the source snapshot')
 		.argument('<target>', 'Path to the target snapshot file')
 		.argument('[output]', 'Path to write the package to (defaults to stdout)')
 		.action((target: string, output: string | undefined, options: Parameters<typeof packageCreate>[1]) =>
@@ -143,6 +145,7 @@ export async function createCli(): Promise<Command> {
 		.command('check')
 		.description('Run the read-only compatibility check of a migration package against the current database')
 		.option('--allow-hash-mismatch', 'Skip the source/target hash mismatch warning', false)
+		.option('--rollback', 'Check the rollback plan instead of the forward plan', false)
 		.argument('<path>', 'Path to migration package file (JSON or YAML)')
 		.action(packageCheck);
 
@@ -154,6 +157,15 @@ export async function createCli(): Promise<Command> {
 		.option('--allow-hash-mismatch', 'Skip the source/target hash mismatch warning', false)
 		.argument('<path>', 'Path to migration package file (JSON or YAML)')
 		.action(packageApply);
+
+	packageCommand
+		.command('rollback')
+		.description('Roll back an applied migration package to its source snapshot, resuming from the last rollback step')
+		.option('-y, --yes', `Assume "yes" as answer to all prompts and run non-interactively`)
+		.option('-d, --dry-run', 'Run the compatibility check and print the rollback plan without writing anything', false)
+		.option('--allow-hash-mismatch', 'Skip the target hash mismatch warning', false)
+		.argument('<path>', 'Path to migration package file (JSON or YAML)')
+		.action(packageRollback);
 
 	await emitter.emitInit('cli.after', { program });
 

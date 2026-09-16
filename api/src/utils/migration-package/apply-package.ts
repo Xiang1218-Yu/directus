@@ -9,9 +9,15 @@ import { getSchema } from '../get-schema.js';
 import { getVersionedHash } from '../get-versioned-hash.js';
 import { applyDiff } from '../schema/apply-diff.js';
 import { getSnapshot } from '../schema/get-snapshot.js';
-import { ensurePackageStepsTable, getPackageRecords, recordStepCompleted, recordStepFailed } from './bookkeeping.js';
+import {
+	clearPackageRecords,
+	ensurePackageStepsTable,
+	getPackageRecords,
+	recordStepCompleted,
+	recordStepFailed,
+} from './bookkeeping.js';
 import { checkMigrationPackage, type CompatibilityResult } from './check-package.js';
-import type { MigrationPackage } from './types.js';
+import type { MigrationPackage, MigrationPackageDirection } from './types.js';
 import { validateMigrationPackage } from './validate-package.js';
 
 export interface ApplyMigrationPackageOptions {
@@ -44,6 +50,7 @@ export interface MigrationPackagePlan {
 	package: MigrationPackage;
 	compatibility: CompatibilityResult;
 	currentSnapshot: Snapshot;
+	direction: MigrationPackageDirection;
 }
 
 /**
@@ -58,32 +65,40 @@ export async function planMigrationPackage(
 		allowHashMismatch?: boolean | undefined;
 		/** When false (check / dry-run), the bookkeeping table is never created. */
 		ensureTable?: boolean | undefined;
+		direction?: MigrationPackageDirection | undefined;
 	},
 ): Promise<MigrationPackagePlan> {
 	validateMigrationPackage(pkg);
 
 	const database = options?.database ?? getDatabase();
+	const direction: MigrationPackageDirection = options?.direction ?? 'up';
+	const ensureTable = options?.ensureTable ?? true;
 
-	if (options?.ensureTable !== false) {
+	if (ensureTable) {
 		await ensurePackageStepsTable(database);
 	}
 
 	const currentSnapshot = await getSnapshot({ database });
 
-	const records = await getPackageRecords(database, pkg.id, {
-		ensureTable: options?.ensureTable !== false,
-	});
+	const fetchRecords = async (dir: MigrationPackageDirection) => {
+		return getPackageRecords(database, pkg.id, dir, { ensureTable });
+	};
+
+	const records = await fetchRecords(direction);
+	const oppositeRecords = await fetchRecords(direction === 'up' ? 'down' : 'up');
 
 	const compatibility = checkMigrationPackage(pkg, currentSnapshot, records, {
 		allowHashMismatch: options?.allowHashMismatch,
 		currentHash: getVersionedHash(currentSnapshot),
+		direction,
+		oppositeRecords,
 	});
 
-	return { package: pkg, compatibility, currentSnapshot };
+	return { package: pkg, compatibility, currentSnapshot, direction };
 }
 
 /**
- * Applies a migration package step by step.
+ * Applies a migration package step by step in the requested direction.
  *
  * Each step runs in its own database transaction together with its bookkeeping
  * insert, so a failed step rolls back cleanly while previously completed steps
@@ -92,25 +107,33 @@ export async function planMigrationPackage(
  */
 export async function applyMigrationPackage(
 	pkg: unknown,
-	options?: ApplyMigrationPackageOptions,
+	options?: ApplyMigrationPackageOptions & { direction?: MigrationPackageDirection | undefined },
 ): Promise<{ applied: string[]; skipped: string[] }> {
 	const logger = useLogger();
 	const database = options?.database ?? getDatabase();
+	const direction: MigrationPackageDirection = options?.direction ?? 'up';
 
 	const plan = await planMigrationPackage(pkg, {
 		database,
 		allowHashMismatch: options?.allowHashMismatch,
+		direction,
 	});
 
 	const { compatibility, currentSnapshot } = plan;
 	const validatedPackage = pkg as MigrationPackage;
+	const steps = direction === 'down' ? (validatedPackage.rollback ?? []) : validatedPackage.steps;
 	const completedSet = new Set(compatibility.completed);
 
-	const total = validatedPackage.steps.length;
+	const total = steps.length;
 	const applied: string[] = [];
 	const skipped: string[] = [];
 
-	for (const [index, step] of validatedPackage.steps.entries()) {
+	// A down run is complete when every rollback step is now either freshly
+	// applied in this run or was already completed by an earlier (resumed) run.
+	const initiallyCompleted = new Set(compatibility.completed);
+	const newlyApplied: string[] = [];
+
+	for (const [index, step] of steps.entries()) {
 		if (completedSet.has(step.id)) {
 			skipped.push(step.id);
 			continue;
@@ -126,14 +149,14 @@ export async function applyMigrationPackage(
 			// applyDiff reuses the passed transaction when one is given.
 			await database.transaction(async (trx) => {
 				await applyDiff(currentSnapshot, step.diff, { database: trx, schema });
-				await recordStepCompleted(trx, validatedPackage.id, step.id);
+				await recordStepCompleted(trx, validatedPackage.id, direction, step.id);
 			});
 		} catch (error) {
 			// The step transaction has been rolled back at this point. Persist the
 			// failure marker in a separate transaction so the package is left in a
 			// known, resumable state.
 			try {
-				await recordStepFailed(database, validatedPackage.id, step.id, error);
+				await recordStepFailed(database, validatedPackage.id, direction, step.id, error);
 			} catch (recordError) {
 				logger.error(`Failed to record failure of step "${step.id}": ${String(recordError)}`);
 			}
@@ -154,7 +177,17 @@ export async function applyMigrationPackage(
 		updateBaseline(currentSnapshot, step.diff);
 
 		applied.push(step.id);
+		newlyApplied.push(step.id);
 		options?.onStepComplete?.({ index: index + 1, total, stepId: step.id, name: step.name });
+	}
+
+	// Once a rollback finishes completely, clear both directions' bookkeeping
+	// so the package is back to a pristine, re-appliable state.
+	if (direction === 'down' && initiallyCompleted.size + newlyApplied.length === total) {
+		await database.transaction(async (trx) => {
+			await clearPackageRecords(trx, validatedPackage.id, 'down');
+			await clearPackageRecords(trx, validatedPackage.id, 'up');
+		});
 	}
 
 	await flushCaches();

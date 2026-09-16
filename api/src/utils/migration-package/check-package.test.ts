@@ -95,6 +95,7 @@ describe('checkMigrationPackage', () => {
 		const records: MigrationPackageStepRecord[] = [
 			{
 				package: 'p1',
+				direction: 'up',
 				step: pkg.steps[0]!.id,
 				status: 'completed',
 				error: null,
@@ -126,8 +127,22 @@ describe('checkMigrationPackage', () => {
 		);
 
 		const records: MigrationPackageStepRecord[] = [
-			{ package: 'p1', step: pkg.steps[0]!.id, status: 'completed', error: null, timestamp: new Date() },
-			{ package: 'p1', step: pkg.steps[1]!.id, status: 'failed', error: 'boom', timestamp: new Date() },
+			{
+				package: 'p1',
+				direction: 'up',
+				step: pkg.steps[0]!.id,
+				status: 'completed',
+				error: null,
+				timestamp: new Date(),
+			},
+			{
+				package: 'p1',
+				direction: 'up',
+				step: pkg.steps[1]!.id,
+				status: 'failed',
+				error: 'boom',
+				timestamp: new Date(),
+			},
 		];
 
 		const result = checkMigrationPackage(pkg, snapshotWithCollection('a'), records);
@@ -142,7 +157,14 @@ describe('checkMigrationPackage', () => {
 		const pkg = buildMigrationPackage(newCollectionDiff('posts') as any, { id: 'p1' });
 
 		const records: MigrationPackageStepRecord[] = [
-			{ package: 'p1', step: '9999-unknown', status: 'completed', error: null, timestamp: new Date() },
+			{
+				package: 'p1',
+				direction: 'up',
+				step: '9999-unknown',
+				status: 'completed',
+				error: null,
+				timestamp: new Date(),
+			},
 		];
 
 		expect(() => checkMigrationPackage(pkg, emptySnapshot(), records)).toThrow(/unknown step/);

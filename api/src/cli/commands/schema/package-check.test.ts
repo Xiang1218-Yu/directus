@@ -71,6 +71,22 @@ describe('schema package check command', () => {
 		);
 	});
 
+	test('checks the forward plan by default and the rollback plan with --rollback', async () => {
+		await packageCheck('pkg.json', {});
+
+		expect(planMigrationPackage).toHaveBeenLastCalledWith(
+			expect.anything(),
+			expect.objectContaining({ direction: 'up', ensureTable: false }),
+		);
+
+		await packageCheck('pkg.json', { rollback: true });
+
+		expect(planMigrationPackage).toHaveBeenLastCalledWith(
+			expect.anything(),
+			expect.objectContaining({ direction: 'down', ensureTable: false }),
+		);
+	});
+
 	test('fails before planning when Directus is not installed', async () => {
 		vi.mocked(isInstalled).mockResolvedValue(false);
 

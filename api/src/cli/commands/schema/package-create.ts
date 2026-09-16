@@ -22,6 +22,8 @@ export interface PackageCreateOptions {
 	id?: string | undefined;
 	author?: string | undefined;
 	description?: string | undefined;
+	/** Include rollback steps (the reverse diff) in the package. Defaults to true. */
+	rollback?: boolean | undefined;
 }
 
 export async function readSnapshotFile(filename: string): Promise<Snapshot> {
@@ -64,6 +66,8 @@ export async function packageCreate(
 
 		const diff = getSnapshotDiff(fromSnapshot, toSnapshot);
 
+		const includeRollback = options.rollback !== false;
+
 		const packageId =
 			options.id ?? `schema-${new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19)}`;
 
@@ -73,6 +77,7 @@ export async function packageCreate(
 			to: toSnapshot,
 			fromHash,
 			toHash,
+			...(includeRollback ? { rollbackDiff: getSnapshotDiff(toSnapshot, fromSnapshot) } : {}),
 			metadata: {
 				...(options.author ? { author: options.author } : {}),
 				...(options.description ? { description: options.description } : {}),

@@ -1,7 +1,13 @@
 import { InvalidPayloadError } from '@directus/errors';
 import type { Snapshot } from '@directus/types';
 import { DiffKind } from '@directus/types';
-import type { CompatibilityIssue, CompatibilityResult, MigrationPackage, MigrationPackageStepRecord } from './types.js';
+import type {
+	CompatibilityIssue,
+	CompatibilityResult,
+	MigrationPackage,
+	MigrationPackageDirection,
+	MigrationPackageStepRecord,
+} from './types.js';
 
 export type { CompatibilityIssue, CompatibilityResult };
 
@@ -15,14 +21,32 @@ const sectionNames = {
  * Compatibility check executed against the target instance before any step is
  * applied. It is read-only: the target snapshot is fetched but nothing is
  * written, so it is also used by `--dry-run`.
+ *
+ * `direction` selects the forward (`up`, package.steps) or rollback
+ * (`down`, package.rollback) plan.
  */
 export function checkMigrationPackage(
 	pkg: MigrationPackage,
 	currentSnapshot: Snapshot,
 	records: MigrationPackageStepRecord[],
-	options?: { allowHashMismatch?: boolean | undefined; currentHash?: string | undefined },
+	options?: {
+		allowHashMismatch?: boolean | undefined;
+		currentHash?: string | undefined;
+		direction?: MigrationPackageDirection | undefined;
+		/** Bookkeeping rows in the opposite direction (up vs down). */
+		oppositeRecords?: MigrationPackageStepRecord[] | undefined;
+	},
 ): CompatibilityResult {
+	const direction: MigrationPackageDirection = options?.direction ?? 'up';
+	const steps = direction === 'down' ? (pkg.rollback ?? []) : pkg.steps;
+
 	const issues: CompatibilityIssue[] = [];
+
+	if (direction === 'down' && !pkg.rollback) {
+		throw new InvalidPayloadError({
+			reason: `Migration package "${pkg.id}" does not contain rollback steps; it cannot be reverted. Regenerate it with both source and target snapshots.`,
+		});
+	}
 
 	const completed = records.filter((record) => record.status === 'completed').map((record) => record.step);
 
@@ -31,12 +55,49 @@ export function checkMigrationPackage(
 
 	// Detect bookkeeping belonging to a *different* package reusing the same id
 	for (const record of records) {
-		if (!pkg.steps.some((step) => step.id === record.step)) {
+		if (!steps.some((step) => step.id === record.step)) {
 			issues.push({
 				level: 'error',
 				message:
-					`Bookkeeping for package "${pkg.id}" contains unknown step "${record.step}". ` +
+					`Bookkeeping for package "${pkg.id}" (${direction}) contains unknown step "${record.step}". ` +
 					`A different package with the same id may have been applied. Use a unique package id.`,
+			});
+		}
+	}
+
+	// Opposite-direction state must be consistent with the requested direction
+	const oppositeCompleted = (options?.oppositeRecords ?? [])
+		.filter((record) => record.status === 'completed')
+		.map((record) => record.step);
+
+	if (direction === 'up' && options?.oppositeRecords && oppositeCompleted.length > 0 && completed.length === 0) {
+		issues.push({
+			level: 'warning',
+			message: `Package "${pkg.id}" appears to have been rolled back (${oppositeCompleted.length} down step(s) recorded). Applying it forward again will re-run all steps.`,
+		});
+	}
+
+	// For a rollback, the forward package must have been fully applied
+	if (direction === 'down') {
+		const forwardCompleted = new Set(
+			(options?.oppositeRecords ?? []).filter((record) => record.status === 'completed').map((record) => record.step),
+		);
+
+		const forwardFailed = (options?.oppositeRecords ?? []).filter((record) => record.status === 'failed');
+
+		if (forwardFailed.length > 0 && forwardCompleted.size < pkg.steps.length) {
+			issues.push({
+				level: 'error',
+				message: `Package "${pkg.id}" has a failed forward application; resolve and complete it before rolling back.`,
+			});
+		}
+
+		const missingForwardSteps = pkg.steps.filter((step) => !forwardCompleted.has(step.id));
+
+		if (missingForwardSteps.length > 0 && completed.length === 0) {
+			issues.push({
+				level: 'error',
+				message: `Cannot roll back package "${pkg.id}": ${missingForwardSteps.length} of ${pkg.steps.length} forward steps were never applied to this database.`,
 			});
 		}
 	}
@@ -44,10 +105,10 @@ export function checkMigrationPackage(
 	// Duplicate / partial execution detection
 	if (completed.length > 0) {
 		// Steps must be completed in order; a gap means the bookkeeping is corrupted
-		for (const [index, step] of pkg.steps.entries()) {
+		for (const [index, step] of steps.entries()) {
 			if (completedSet.has(step.id)) continue;
 
-			for (const later of pkg.steps.slice(index + 1)) {
+			for (const later of steps.slice(index + 1)) {
 				if (completedSet.has(later.id)) {
 					issues.push({
 						level: 'error',
@@ -64,14 +125,14 @@ export function checkMigrationPackage(
 			issues.push({
 				level: 'warning',
 				message:
-					`Package "${pkg.id}" previously failed at step "${failedRecords[0]!.step}". ` +
+					`Package "${pkg.id}" (${direction}) previously failed at step "${failedRecords[0]!.step}". ` +
 					`Completed steps will be skipped and the run resumes from that step.`,
 			});
 		} else {
 			issues.push({
 				level: 'warning',
 				message:
-					`${completed.length} of ${pkg.steps.length} steps of package "${pkg.id}" are already completed; ` +
+					`${completed.length} of ${steps.length} ${direction} steps of package "${pkg.id}" are already completed; ` +
 					`they will be skipped on application.`,
 			});
 		}
@@ -86,19 +147,22 @@ export function checkMigrationPackage(
 	}
 
 	const currentHash = options?.currentHash;
+	const expectedHash = direction === 'down' ? pkg.toHash : pkg.fromHash;
 
 	if (
 		options?.allowHashMismatch !== true &&
-		pkg.fromHash &&
+		expectedHash &&
 		currentHash !== undefined &&
-		pkg.fromHash !== currentHash &&
-		// Only meaningful when nothing has been applied yet
+		expectedHash !== currentHash &&
+		// Only meaningful when nothing in this direction has been applied yet
 		completed.length === 0
 	) {
 		issues.push({
 			level: 'warning',
 			message:
-				`Target schema hash "${currentHash}" does not match the package's source hash "${pkg.fromHash}". ` +
+				`Target schema hash "${currentHash}" does not match the package's ${
+					direction === 'down' ? 'target ("to")' : 'source ("from")'
+				} hash "${expectedHash}". ` +
 				`The target instance may contain other changes. Pass --allow-hash-mismatch to silence this check.`,
 		});
 	}
@@ -106,7 +170,7 @@ export function checkMigrationPackage(
 	// Per-step conflicts against the *current* schema. Note that steps already
 	// completed don't have to match the current schema anymore (their changes
 	// are part of it), so they are skipped.
-	for (const step of pkg.steps) {
+	for (const step of steps) {
 		if (completedSet.has(step.id)) continue;
 
 		const checkEntry = (section: 'collections' | 'fields' | 'relations') => {
@@ -224,7 +288,7 @@ export function checkMigrationPackage(
 		});
 	}
 
-	const pending = pkg.steps.filter((step) => !completedSet.has(step.id)).map((step) => step.id);
+	const pending = steps.filter((step) => !completedSet.has(step.id)).map((step) => step.id);
 
 	return {
 		issues,

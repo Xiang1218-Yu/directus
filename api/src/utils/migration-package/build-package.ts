@@ -18,6 +18,11 @@ export interface BuildMigrationPackageOptions {
 	to?: Snapshot | undefined;
 	fromHash?: string | undefined;
 	toHash?: string | undefined;
+	/**
+	 * Diff reverting `to` back to `from` (as produced by `getSnapshotDiff(to, from)`).
+	 * When provided the package gains reviewable, resumable rollback steps.
+	 */
+	rollbackDiff?: SnapshotDiff | undefined;
 }
 
 const emptyDiff = (): SnapshotDiff => ({ collections: [], fields: [], systemFields: [], relations: [] });
@@ -177,13 +182,25 @@ export function buildMigrationPackageSteps(diff: SnapshotDiff): MigrationPackage
 		});
 	}
 
-	// Phase 4: fields (create, then update, then delete — same order as applyDiff)
+	// Phase 4: fields (create, then update, then delete — same order as applyDiff).
+	// Each field produces exactly one step: a NEW diff whose path starts at
+	// `meta` is a meta-only change on an existing physical column and is an
+	// update, not a create.
 	const standaloneFields = diff.fields.filter(
 		(fieldDiff) => !bundledFieldKeys.has(`${fieldDiff.collection}.${fieldDiff.field}`),
 	);
 
+	const isMetaOnlyChange = (fieldDiff: SnapshotDiff['fields'][number]['diff']): boolean => {
+		const first = fieldDiff[0];
+		return !!first && (first.kind === DiffKind.NEW || first.kind === DiffKind.DELETE) && first.path?.[0] === 'meta';
+	};
+
+	const createdFieldKeys = new Set<string>();
+
 	for (const { collection, field, diff: fieldDiff } of standaloneFields) {
-		if (fieldDiff[0]?.kind !== DiffKind.NEW) continue;
+		if (fieldDiff[0]?.kind !== DiffKind.NEW || isMetaOnlyChange(fieldDiff)) continue;
+
+		createdFieldKeys.add(`${collection}.${field}`);
 
 		add('create-field', collection, field, undefined, {
 			...emptyDiff(),
@@ -191,27 +208,22 @@ export function buildMigrationPackageSteps(diff: SnapshotDiff): MigrationPackage
 		});
 	}
 
+	// Update = explicit edits/array changes plus nested meta additions/removals
 	for (const { collection, field, diff: fieldDiff } of standaloneFields) {
 		const first = fieldDiff[0];
-		if (first?.kind !== DiffKind.EDIT && first?.kind !== DiffKind.ARRAY) continue;
+		const isEditLike = first?.kind === DiffKind.EDIT || first?.kind === DiffKind.ARRAY;
+		const isMetaChange = isMetaOnlyChange(fieldDiff);
+
+		if (!isEditLike && !isMetaChange) continue;
+
+		// A field can only ever appear once in getSnapshotDiff output, but guard
+		// against packages built from hand-merged diffs to keep one step per field
+		if (createdFieldKeys.has(`${collection}.${field}`)) continue;
 
 		add('update-field', collection, field, undefined, {
 			...emptyDiff(),
 			fields: [{ collection, field, diff: fieldDiff }],
 		});
-	}
-
-	// Nested meta changes surface as NEW/DELETE diffs with a meta[0] path
-	for (const { collection, field, diff: fieldDiff } of standaloneFields) {
-		const first = fieldDiff[0];
-		if (!first) continue;
-
-		if ((first.kind === DiffKind.NEW || first.kind === DiffKind.DELETE) && first.path?.[0] === 'meta') {
-			add('update-field', collection, field, undefined, {
-				...emptyDiff(),
-				fields: [{ collection, field, diff: fieldDiff }],
-			});
-		}
 	}
 
 	for (const { collection, field, diff: fieldDiff } of standaloneFields) {
@@ -288,6 +300,8 @@ export function buildMigrationPackageSteps(diff: SnapshotDiff): MigrationPackage
 export function buildMigrationPackage(diff: SnapshotDiff, options: BuildMigrationPackageOptions): MigrationPackage {
 	const steps = buildMigrationPackageSteps(diff);
 
+	const rollback = options.rollbackDiff ? buildMigrationPackageSteps(options.rollbackDiff) : undefined;
+
 	const pkg: MigrationPackage = {
 		kind: MIGRATION_PACKAGE_KIND,
 		version: MIGRATION_PACKAGE_VERSION,
@@ -310,6 +324,7 @@ export function buildMigrationPackage(diff: SnapshotDiff, options: BuildMigratio
 		...(options.fromHash ? { fromHash: options.fromHash } : {}),
 		...(options.toHash ? { toHash: options.toHash } : {}),
 		steps,
+		...(rollback && rollback.length > 0 ? { rollback } : {}),
 	};
 
 	return pkg;

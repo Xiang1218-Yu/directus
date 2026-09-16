@@ -82,11 +82,24 @@ describe('schema package create command', () => {
 		await packageCreate('target.yaml', { yes: true, format: 'yaml' });
 
 		expect(getSnapshot).toHaveBeenCalledWith({ database: mockDatabase });
+		expect(getSnapshotDiff).toHaveBeenCalledTimes(2); // forward + rollback diffs
+
+		expect(buildMigrationPackage).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ fromHash: 'hash', toHash: 'hash', rollbackDiff: expect.any(Object) }),
+		);
+	});
+
+	test('omits rollback steps with --no-rollback', async () => {
+		vi.spyOn(fs, 'readFile').mockResolvedValue(JSON.stringify(snapshot()));
+
+		await packageCreate('target.json', { yes: true, format: 'json', rollback: false });
+
 		expect(getSnapshotDiff).toHaveBeenCalledTimes(1);
 
 		expect(buildMigrationPackage).toHaveBeenCalledWith(
 			expect.anything(),
-			expect.objectContaining({ fromHash: 'hash', toHash: 'hash' }),
+			expect.not.objectContaining({ rollbackDiff: expect.anything() }),
 		);
 	});
 

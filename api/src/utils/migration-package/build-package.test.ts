@@ -167,6 +167,41 @@ describe('buildMigrationPackageSteps', () => {
 			}
 		}
 	});
+
+	test('a NEW field diff that only adds meta becomes a single update-field step', () => {
+		// Physical column already exists; only the meta sub-object is added
+		const metaOnlyField = {
+			collection: 'posts',
+			field: 'legacy_col',
+			diff: [
+				{
+					kind: DiffKind.NEW,
+					path: ['meta'],
+					rhs: {
+						id: 42,
+						collection: 'posts',
+						field: 'legacy_col',
+						special: null,
+						interface: 'input',
+					},
+				},
+			],
+		};
+
+		const steps = buildMigrationPackageSteps(diff({ fields: [metaOnlyField as unknown as FieldEntry] }));
+
+		expect(steps).toHaveLength(1);
+		expect(steps[0]!.kind).toBe('update-field');
+		expect(steps[0]!.collection).toBe('posts');
+		expect(steps[0]!.field).toBe('legacy_col');
+	});
+
+	test('a top-level NEW field diff remains a create-field step', () => {
+		const steps = buildMigrationPackageSteps(diff({ fields: [newField('posts', 'brand_new')] }));
+
+		expect(steps).toHaveLength(1);
+		expect(steps[0]!.kind).toBe('create-field');
+	});
 });
 
 describe('buildMigrationPackage + validateMigrationPackage roundtrip', () => {
