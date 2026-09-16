@@ -1,0 +1,2 @@
+import { type PinnedVersion } from '@pnpm/types';
+export declare function whichVersionIsPinned(spec: string): PinnedVersion | undefined;

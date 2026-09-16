@@ -1,0 +1,15 @@
+import { n as YamlOptions } from "./types-BWrchNCm.js";
+import { UnpluginFactory, UnpluginInstance } from "unplugin";
+
+//#region src/index.d.ts
+
+/**
+ * A unplugin factory, used by Unplugin to create a new plugin instance.
+ */
+declare const unpluginFactory: UnpluginFactory<YamlOptions | undefined>;
+/**
+ * The main unplugin instance.
+ */
+declare const unplugin: UnpluginInstance<YamlOptions | undefined, boolean>;
+//#endregion
+export { unpluginFactory as n, unplugin as t };

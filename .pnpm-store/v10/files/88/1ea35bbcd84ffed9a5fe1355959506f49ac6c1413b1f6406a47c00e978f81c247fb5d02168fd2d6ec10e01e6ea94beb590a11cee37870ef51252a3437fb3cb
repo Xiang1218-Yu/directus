@@ -1,0 +1,24 @@
+Object.defineProperty(exports, '__esModule', { value: true });
+const require_src = require('./src-BHUamkzE.cjs');
+require('./constants-bWtGtIdS.cjs');
+let unplugin = require("unplugin");
+unplugin = require_src.__toESM(unplugin);
+
+//#region src/rspack.ts
+/**
+* Rspack plugin
+*
+* @example
+* ```ts
+* // rspack.config.ts
+* import yaml from "unplugin-yaml/rspack"
+*
+* export default defineConfig({
+*   plugins: [yaml()],
+* })
+* ```
+*/
+var rspack_default = (0, unplugin.createRspackPlugin)(require_src.unpluginFactory);
+
+//#endregion
+exports.default = rspack_default;

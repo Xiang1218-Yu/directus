@@ -56,3 +56,31 @@ export interface OperationRaw {
 	date_created: string;
 	user_created: string;
 }
+
+export type FlowSessionStatus = 'running' | 'cancelling' | 'succeeded' | 'failed' | 'cancelled';
+
+export type FlowSessionStepStatus = 'resolve' | 'reject' | 'unknown';
+
+export interface FlowSessionStep {
+	operation: string;
+	key: string;
+	status: FlowSessionStepStatus;
+	options: Record<string, any> | null;
+	data: unknown;
+}
+
+export interface FlowSessionRaw {
+	id: string;
+	flow: string;
+	name: string | null;
+	status: FlowSessionStatus;
+	input: unknown;
+	steps: FlowSessionStep[];
+	error: unknown;
+	attempts: number;
+	started_operation: string | null;
+	started_at: string;
+	completed_at: string | null;
+	date_created: string;
+	user_created: string | null;
+}

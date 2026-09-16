@@ -1,0 +1,479 @@
+import { computed, createElementBlock, createElementVNode, defineComponent, mergeModels, normalizeClass, onMounted, openBlock, renderSlot, toValue, unref, useCssVars, useModel, useTemplateRef, watch } from "vue";
+import { clamp, refAutoReset, useDraggable, useElementSize, useResizeObserver } from "@vueuse/core";
+
+//#region src/composables/use-collapse.ts
+const useCollapse = (collapsed, sizePercentage, options) => {
+	let expandedSizePercentage = 0;
+	const collapseTransitionState = refAutoReset(null, toValue(options.transitionDuration));
+	const transitionDurationCss = computed(() => `${toValue(options.transitionDuration)}ms`);
+	watch(collapsed, (newCollapsed) => {
+		if (newCollapsed === true) {
+			expandedSizePercentage = sizePercentage.value;
+			sizePercentage.value = toValue(options.collapsedSize);
+			collapseTransitionState.value = "collapsing";
+		} else {
+			sizePercentage.value = expandedSizePercentage;
+			collapseTransitionState.value = "expanding";
+		}
+	});
+	const collapse = () => collapsed.value = true;
+	const expand = () => collapsed.value = false;
+	const toggle = (val) => collapsed.value = val;
+	return {
+		collapse,
+		expand,
+		toggle,
+		collapseTransitionState,
+		transitionDurationCss
+	};
+};
+
+//#endregion
+//#region src/composables/use-grid-template.ts
+const useGridTemplate = (options) => {
+	return { gridTemplate: computed(() => {
+		let primary;
+		if (options.collapsed.value) primary = `${options.collapsedSizePercentage.value}%`;
+		else if (options.minSizePercentage.value !== void 0 && options.maxSizePercentage.value !== void 0) primary = `clamp(0%, clamp(${options.minSizePercentage.value}%, ${options.sizePercentage.value}%, ${options.maxSizePercentage.value}%), calc(100% - ${options.dividerSize.value}px))`;
+		else if (options.minSizePercentage.value !== void 0) primary = `clamp(${options.minSizePercentage.value}%, ${options.sizePercentage.value}%, calc(100% - ${options.dividerSize.value}px))`;
+		else primary = `clamp(0%, ${options.sizePercentage.value}%, calc(100% - ${options.dividerSize.value}px))`;
+		const secondary = "auto";
+		if (!toValue(options.primary) || toValue(options.primary) === "start") return `${primary} ${options.dividerSize.value}px ${secondary}`;
+		else return `${secondary} ${options.dividerSize.value}px ${primary}`;
+	}) };
+};
+
+//#endregion
+//#region src/composables/use-keyboard.ts
+const useKeyboard = (sizePercentage, collapsed, options) => {
+	const handleKeydown = (event) => {
+		if (toValue(options.disabled)) return;
+		if ([
+			"ArrowLeft",
+			"ArrowRight",
+			"ArrowUp",
+			"ArrowDown",
+			"Home",
+			"End",
+			"Enter"
+		].includes(event.key)) {
+			event.preventDefault();
+			let newPosition = sizePercentage.value;
+			const increment = (event.shiftKey ? 10 : 1) * (toValue(options.primary) === "end" ? -1 : 1);
+			if (event.key === "ArrowLeft" && toValue(options.orientation) === "horizontal" || event.key === "ArrowUp" && toValue(options.orientation) === "vertical") newPosition -= increment;
+			if (event.key === "ArrowRight" && toValue(options.orientation) === "horizontal" || event.key === "ArrowDown" && toValue(options.orientation) === "vertical") newPosition += increment;
+			if (event.key === "Home") newPosition = toValue(options.primary) === "end" ? 100 : 0;
+			if (event.key === "End") newPosition = toValue(options.primary) === "end" ? 0 : 100;
+			if (event.key === "Enter" && toValue(options.collapsible)) collapsed.value = !collapsed.value;
+			sizePercentage.value = clamp(newPosition, options.minSizePercentage.value, options.maxSizePercentage.value ?? 100);
+		}
+	};
+	return { handleKeydown };
+};
+
+//#endregion
+//#region src/utils/closest-number.ts
+/**
+* Returns the number from an array that is closest to the provided value.
+*
+* Tie breaking:
+* - For finite target values: if two numbers are equally close, the smaller numeric value is returned (stable + predictable)
+* - For target = +Infinity: the largest candidate wins (intuitive 'towards' the target)
+* - For target = -Infinity: the smallest candidate wins
+*
+* Non-finite (NaN / ±Infinity) entries in the candidate list are ignored. If, after filtering, no numbers remain, `undefined` is returned.
+*
+* @param numbers - The list of candidate numbers
+* @param value - The target value to compare against
+* @returns The closest number from the list, or `undefined` if the list is empty or only contained non-finite values
+*/
+const closestNumber = (numbers, value) => {
+	let closest;
+	let smallestDiff = Number.POSITIVE_INFINITY;
+	for (const n of numbers) {
+		if (!Number.isFinite(n)) continue;
+		const diff = Math.abs(n - value);
+		if (diff < smallestDiff) {
+			smallestDiff = diff;
+			closest = n;
+			continue;
+		}
+		if (diff === smallestDiff && closest !== void 0) {
+			if (value === Number.POSITIVE_INFINITY) {
+				if (n > closest) closest = n;
+			} else if (value === Number.NEGATIVE_INFINITY) {
+				if (n < closest) closest = n;
+			} else if (n < closest) closest = n;
+		}
+		if (closest === void 0) {
+			closest = n;
+			smallestDiff = diff;
+		}
+	}
+	return closest;
+};
+
+//#endregion
+//#region src/utils/pixels-to-percentage.ts
+/**
+* Converts a pixel value to a percentage relative to a given area.
+* @param area - The total area in pixels to calculate percentage against
+* @param pixels - The pixel value to convert to percentage
+* @returns The percentage value (0-100) that the pixels represent of the total area
+*/
+const pixelsToPercentage = (area, pixels) => area === 0 ? 0 : pixels / area * 100;
+
+//#endregion
+//#region src/composables/use-pointer.ts
+const usePointer = (collapsed, sizePercentage, sizePixels, options) => {
+	const { x: dividerX, y: dividerY, isDragging } = useDraggable(options.dividerEl, { containerElement: options.panelEl });
+	let thresholdLocation = collapsed.value ? "expand" : "collapse";
+	watch([dividerX, dividerY], ([newX, newY]) => {
+		if (toValue(options.disabled)) return;
+		let newPositionInPixels = toValue(options.orientation) === "horizontal" ? newX : newY;
+		if (toValue(options.orientation) === "horizontal" && toValue(options.direction) === "rtl") newPositionInPixels = options.componentSize.value - newPositionInPixels;
+		if (toValue(options.primary) === "end") newPositionInPixels = options.componentSize.value - newPositionInPixels;
+		if (toValue(options.collapsible) && toValue(options.collapseThreshold) !== void 0) {
+			let threshold;
+			if (thresholdLocation === "collapse") threshold = options.minSizePixels.value - (toValue(options.collapseThreshold) ?? 0);
+			else threshold = toValue(options.collapseThreshold) ?? 0;
+			if (newPositionInPixels < threshold && collapsed.value === false) collapsed.value = true;
+			else if (newPositionInPixels > threshold && collapsed.value === true) collapsed.value = false;
+		}
+		for (const snapPoint of options.snapPixels.value) if (newPositionInPixels >= snapPoint - toValue(options.snapThreshold) && newPositionInPixels <= snapPoint + toValue(options.snapThreshold)) newPositionInPixels = snapPoint;
+		sizePercentage.value = clamp(pixelsToPercentage(options.componentSize.value, newPositionInPixels), 0, 100);
+	});
+	watch(isDragging, (newDragging) => {
+		if (newDragging === false) thresholdLocation = collapsed.value ? "expand" : "collapse";
+	});
+	const handleDblClick = () => {
+		const closest = closestNumber(options.snapPixels.value, sizePixels.value);
+		if (closest !== void 0) sizePixels.value = closest;
+		if (collapsed.value === true) collapsed.value = false;
+	};
+	return {
+		handleDblClick,
+		isDragging
+	};
+};
+
+//#endregion
+//#region src/composables/use-resize.ts
+const useResize = (sizePercentage, options) => {
+	let cachedSizePixels = 0;
+	onMounted(() => {
+		cachedSizePixels = options.sizePixels.value;
+	});
+	watch(options.sizePixels, (newPixels, oldPixels) => {
+		if (newPixels === oldPixels) return;
+		cachedSizePixels = newPixels;
+	});
+	const onResize = (entries) => {
+		const { width, height } = entries[0].contentRect;
+		const size = toValue(options.orientation) === "horizontal" ? width : height;
+		if (toValue(options.primary)) sizePercentage.value = pixelsToPercentage(size, cachedSizePixels);
+	};
+	useResizeObserver(options.panelEl, onResize);
+	return { onResize };
+};
+
+//#endregion
+//#region src/utils/percentage-to-pixels.ts
+/**
+* Converts a percentage value to pixels based on a given area.
+* @param area - The total area in pixels
+* @param percentage - The percentage value to convert (0-100)
+* @returns The pixel value corresponding to the percentage of the area
+*/
+const percentageToPixels = (area, percentage) => area * (percentage / 100);
+
+//#endregion
+//#region src/composables/use-sizes.ts
+const useSizes = (size, options) => {
+	const { width: componentWidth, height: componentHeight } = useElementSize(options.panelEl);
+	const componentSize = computed(() => toValue(options.orientation) === "horizontal" ? componentWidth.value : componentHeight.value);
+	const { width: dividerWidth, height: dividerHeight } = useElementSize(options.dividerEl);
+	const dividerSize = computed(() => toValue(options.orientation) === "horizontal" ? dividerWidth.value : dividerHeight.value);
+	const sizePercentage = computed({
+		get() {
+			if (toValue(options.sizeUnit) === "%") return size.value;
+			return pixelsToPercentage(componentSize.value, size.value);
+		},
+		set(newValue) {
+			if (toValue(options.sizeUnit) === "%") size.value = newValue;
+			else size.value = percentageToPixels(componentSize.value, newValue);
+		}
+	});
+	const sizePixels = computed({
+		get() {
+			if (toValue(options.sizeUnit) === "px") return size.value;
+			return percentageToPixels(componentSize.value, size.value);
+		},
+		set(newValue) {
+			if (toValue(options.sizeUnit) === "px") size.value = newValue;
+			else size.value = pixelsToPercentage(componentSize.value, newValue);
+		}
+	});
+	const minSizePercentage = computed(() => {
+		if (toValue(options.sizeUnit) === "%") return toValue(options.minSize);
+		return pixelsToPercentage(componentSize.value, toValue(options.minSize));
+	});
+	const minSizePixels = computed(() => {
+		if (toValue(options.sizeUnit) === "px") return toValue(options.minSize);
+		return percentageToPixels(componentSize.value, toValue(options.minSize));
+	});
+	const maxSizePercentage = computed(() => {
+		if (toValue(options.maxSize) === void 0) return;
+		if (toValue(options.sizeUnit) === "%") return toValue(options.maxSize);
+		return pixelsToPercentage(componentSize.value, toValue(options.maxSize));
+	});
+	const collapsedSizePercentage = computed(() => {
+		if (toValue(options.sizeUnit) === "%") return toValue(options.collapsedSize);
+		return pixelsToPercentage(componentSize.value, toValue(options.collapsedSize));
+	});
+	return {
+		componentSize,
+		dividerSize,
+		sizePercentage,
+		sizePixels,
+		minSizePercentage,
+		minSizePixels,
+		maxSizePercentage,
+		snapPixels: computed(() => {
+			if (toValue(options.sizeUnit) === "px") return toValue(options.snapPoints);
+			return toValue(options.snapPoints).map((snapPercentage) => percentageToPixels(componentSize.value, snapPercentage));
+		}),
+		collapsedSizePercentage
+	};
+};
+
+//#endregion
+//#region src/SplitPanel.vue?vue&type=script&setup=true&lang.ts
+const _hoisted_1 = ["tabindex", "aria-valuenow"];
+var SplitPanel_vue_vue_type_script_setup_true_lang_default = /* @__PURE__ */ defineComponent({
+	__name: "SplitPanel",
+	props: /* @__PURE__ */ mergeModels({
+		orientation: {
+			type: String,
+			required: false,
+			default: "horizontal"
+		},
+		direction: {
+			type: String,
+			required: false,
+			default: "ltr"
+		},
+		primary: {
+			type: null,
+			required: false
+		},
+		dividerHitArea: {
+			type: String,
+			required: false,
+			default: "4px"
+		},
+		sizeUnit: {
+			type: String,
+			required: false,
+			default: "%"
+		},
+		disabled: {
+			type: Boolean,
+			required: false,
+			default: false
+		},
+		minSize: {
+			type: Number,
+			required: false,
+			default: 0
+		},
+		maxSize: {
+			type: Number,
+			required: false
+		},
+		collapsible: {
+			type: Boolean,
+			required: false,
+			default: false
+		},
+		collapseThreshold: {
+			type: Number,
+			required: false
+		},
+		collapsedSize: {
+			type: Number,
+			required: false,
+			default: 0
+		},
+		transitionDuration: {
+			type: Number,
+			required: false,
+			default: 0
+		},
+		transitionTimingFunctionExpand: {
+			type: String,
+			required: false,
+			default: "cubic-bezier(0, 0, 0.2, 1)"
+		},
+		transitionTimingFunctionCollapse: {
+			type: String,
+			required: false,
+			default: "cubic-bezier(0.4, 0, 0.6, 1)"
+		},
+		snapPoints: {
+			type: Array,
+			required: false,
+			default: () => []
+		},
+		snapThreshold: {
+			type: Number,
+			required: false,
+			default: 12
+		},
+		ui: {
+			type: Object,
+			required: false
+		}
+	}, {
+		"size": {
+			type: Number,
+			default: 50
+		},
+		"sizeModifiers": {},
+		"collapsed": {
+			type: Boolean,
+			default: false
+		},
+		"collapsedModifiers": {}
+	}),
+	emits: ["update:size", "update:collapsed"],
+	setup(__props, { expose: __expose }) {
+		useCssVars((_ctx) => ({
+			"4dbe2ceb-transitionDurationCss": unref(transitionDurationCss),
+			"4dbe2ceb-transitionTimingFunctionCollapse": _ctx.transitionTimingFunctionCollapse,
+			"4dbe2ceb-transitionTimingFunctionExpand": _ctx.transitionTimingFunctionExpand,
+			"4dbe2ceb-gridTemplate": unref(gridTemplate),
+			"4dbe2ceb-dividerHitArea": _ctx.dividerHitArea,
+			"4dbe2ceb-dividerSize": unref(dividerSize)
+		}));
+		const props = __props;
+		/** Size of the primary panel in either percentages or pixels as defined by the sizeUnit property */
+		const size = useModel(__props, "size");
+		/** Whether the primary column is collapsed or not */
+		const collapsed = useModel(__props, "collapsed");
+		const panelEl = useTemplateRef("split-panel");
+		const dividerEl = useTemplateRef("divider");
+		const { sizePercentage, sizePixels, maxSizePercentage, minSizePercentage, minSizePixels, componentSize, dividerSize, snapPixels, collapsedSizePercentage } = useSizes(size, {
+			disabled: () => props.disabled,
+			collapsible: () => props.collapsible,
+			primary: () => props.primary,
+			orientation: () => props.orientation,
+			sizeUnit: () => props.sizeUnit,
+			minSize: () => props.minSize,
+			maxSize: () => props.maxSize,
+			snapPoints: () => props.snapPoints,
+			collapsedSize: () => props.collapsedSize,
+			panelEl,
+			dividerEl
+		});
+		const { handleKeydown } = useKeyboard(sizePercentage, collapsed, {
+			disabled: () => props.disabled,
+			collapsible: () => props.collapsible,
+			primary: () => props.primary,
+			orientation: () => props.orientation,
+			minSizePercentage,
+			maxSizePercentage
+		});
+		const { isDragging, handleDblClick } = usePointer(collapsed, sizePercentage, sizePixels, {
+			collapseThreshold: () => props.collapseThreshold,
+			collapsible: () => props.collapsible,
+			direction: () => props.direction,
+			disabled: () => props.disabled,
+			orientation: () => props.orientation,
+			primary: () => props.primary,
+			snapThreshold: () => props.snapThreshold,
+			panelEl,
+			dividerEl,
+			minSizePixels,
+			componentSize,
+			snapPixels
+		});
+		const { gridTemplate } = useGridTemplate({
+			collapsed,
+			dividerSize,
+			maxSizePercentage,
+			minSizePercentage,
+			orientation: () => props.orientation,
+			primary: () => props.primary,
+			sizePercentage,
+			collapsedSizePercentage
+		});
+		useResize(sizePercentage, {
+			sizePixels,
+			panelEl,
+			orientation: () => props.orientation,
+			primary: () => props.primary
+		});
+		const { collapseTransitionState, toggle, expand, collapse, transitionDurationCss } = useCollapse(collapsed, sizePercentage, {
+			transitionDuration: () => props.transitionDuration,
+			collapsedSize: () => props.collapsedSize
+		});
+		__expose({
+			collapse,
+			expand,
+			toggle
+		});
+		return (_ctx, _cache) => {
+			return openBlock(), createElementBlock("div", {
+				ref: "split-panel",
+				class: normalizeClass(["sp-root", [`sp-${__props.orientation}`, {
+					"sp-collapsed": collapsed.value,
+					"sp-dragging": unref(isDragging),
+					[`sp-${unref(collapseTransitionState)}`]: unref(collapseTransitionState)
+				}]]),
+				"data-testid": "root"
+			}, [
+				createElementVNode("div", {
+					class: normalizeClass(["sp-start", __props.ui?.start]),
+					"data-testid": "start"
+				}, [renderSlot(_ctx.$slots, "start", {}, void 0, true)], 2),
+				createElementVNode("div", {
+					ref: "divider",
+					class: normalizeClass(["sp-divider", [
+						{ "sp-disabled": __props.disabled },
+						`sp-${__props.orientation}`,
+						__props.ui?.divider
+					]]),
+					tabindex: __props.disabled ? void 0 : 0,
+					role: "separator",
+					"aria-valuenow": unref(sizePercentage),
+					"aria-valuemin": "0",
+					"aria-valuemax": "100",
+					"aria-label": "Resize",
+					"data-testid": "divider",
+					onKeydown: _cache[0] || (_cache[0] = (...args) => unref(handleKeydown) && unref(handleKeydown)(...args)),
+					onDblclick: _cache[1] || (_cache[1] = (...args) => unref(handleDblClick) && unref(handleDblClick)(...args))
+				}, [renderSlot(_ctx.$slots, "divider", {}, () => [_cache[2] || (_cache[2] = createElementVNode("div", null, null, -1))], true)], 42, _hoisted_1),
+				createElementVNode("div", {
+					class: normalizeClass(["sp-end", __props.ui?.end]),
+					"data-testid": "end"
+				}, [renderSlot(_ctx.$slots, "end", {}, void 0, true)], 2)
+			], 2);
+		};
+	}
+});
+
+//#endregion
+//#region \0plugin-vue:export-helper
+var _plugin_vue_export_helper_default = (sfc, props) => {
+	const target = sfc.__vccOpts || sfc;
+	for (const [key, val] of props) target[key] = val;
+	return target;
+};
+
+//#endregion
+//#region src/SplitPanel.vue
+var SplitPanel_default = /* @__PURE__ */ _plugin_vue_export_helper_default(SplitPanel_vue_vue_type_script_setup_true_lang_default, [["__scopeId", "data-v-4dbe2ceb"]]);
+
+//#endregion
+export { SplitPanel_default as SplitPanel };

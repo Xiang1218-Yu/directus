@@ -1,0 +1,32 @@
+import type { CopyFileOptions } from './interfaces.js';
+export type * from './interfaces.js';
+/**
+ * Check if a directory exists, if not then create it
+ * @param {String} dir - directory to create
+ */
+export declare function createDir(dir: string): void;
+/**
+ * Converts a path from any platform to posix
+ * @param {String} pathStr - the path to convert
+ * @returns {String} - the converted posix path
+ */
+export declare function convertToPosix(pathStr: string): string;
+/**
+ * Calculate the destination path for a given input file and options.
+ */
+export declare function getDestinationPath(inFile: string, outDir: string, options: CopyFileOptions, isSingleFileRename?: boolean): string;
+/**
+ * Helper to filter dotfiles if needed (dot: true)
+ * @param paths - array of file/folder paths
+ * @param dot - if true, include dotfiles/folders; otherwise, filter them out
+ */
+export declare function filterDotFiles(paths: string[], dot: boolean): string[];
+/**
+ * Copy the files per a glob pattern, the first item(s) can be a 1 or more files to copy
+ * while the last item in the array is the output outDirectory directory
+ * @param {String[]} paths - includes both source(s) and outDirectory directory
+ * @param {CopyFileOptions} options - CLI options
+ * @param {(e?: Error) => void} callback - optionally callback that will be executed after copy is finished or when an error occurs
+ */
+export declare function copyfiles(sources: string | string[], outPath: string, options?: CopyFileOptions, callback?: (e?: Error) => void): void;
+//# sourceMappingURL=index.d.ts.map

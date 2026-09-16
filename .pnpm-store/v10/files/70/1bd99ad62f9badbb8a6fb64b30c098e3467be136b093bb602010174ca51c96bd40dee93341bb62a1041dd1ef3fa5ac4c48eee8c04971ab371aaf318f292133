@@ -1,0 +1,28 @@
+import { type PackageMeta, type PackageInRegistry } from '@pnpm/registry.types';
+import { type PickPackageFromMetaOptions } from './pickPackageFromMeta.js';
+import { type RegistryPackageSpec } from './parseBareSpecifier.js';
+export interface PackageMetaCache {
+    get: (key: string) => PackageMeta | undefined;
+    set: (key: string, meta: PackageMeta) => void;
+    has: (key: string) => boolean;
+}
+export interface PickPackageOptions extends PickPackageFromMetaOptions {
+    authHeaderValue?: string;
+    pickLowestVersion?: boolean;
+    registry: string;
+    dryRun: boolean;
+    updateToLatest?: boolean;
+}
+export declare function pickPackage(ctx: {
+    fetch: (pkgName: string, registry: string, authHeaderValue?: string) => Promise<PackageMeta>;
+    metaDir: string;
+    metaCache: PackageMetaCache;
+    cacheDir: string;
+    offline?: boolean;
+    preferOffline?: boolean;
+    filterMetadata?: boolean;
+    strictPublishedByCheck?: boolean;
+}, spec: RegistryPackageSpec, opts: PickPackageOptions): Promise<{
+    meta: PackageMeta;
+    pickedPackage: PackageInRegistry | null;
+}>;

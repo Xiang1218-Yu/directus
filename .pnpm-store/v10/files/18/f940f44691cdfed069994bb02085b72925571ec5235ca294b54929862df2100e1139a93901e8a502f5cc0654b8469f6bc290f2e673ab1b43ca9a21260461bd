@@ -1,0 +1,7 @@
+export declare class WorkspaceSpec {
+    alias?: string;
+    version: string;
+    constructor(version: string, alias?: string);
+    static parse(pref: string): WorkspaceSpec | null;
+    toString(): `workspace:${string}`;
+}

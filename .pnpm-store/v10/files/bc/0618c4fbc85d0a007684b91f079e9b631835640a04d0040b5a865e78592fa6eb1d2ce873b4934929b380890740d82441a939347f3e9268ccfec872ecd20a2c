@@ -1,0 +1,27 @@
+const require_src = require('./src-BHUamkzE.cjs');
+let unplugin = require("unplugin");
+unplugin = require_src.__toESM(unplugin);
+
+//#region src/vite.ts
+/**
+* Vite plugin
+*
+* @example
+* ```ts
+* // vite.config.ts
+* import yaml from "unplugin-yaml/vite"
+*
+* export default defineConfig({
+*   plugins: [yaml()],
+* })
+* ```
+*/
+var vite_default = (0, unplugin.createVitePlugin)(require_src.unpluginFactory);
+
+//#endregion
+Object.defineProperty(exports, 'vite_default', {
+  enumerable: true,
+  get: function () {
+    return vite_default;
+  }
+});

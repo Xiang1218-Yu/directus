@@ -1,0 +1,24 @@
+Object.defineProperty(exports, '__esModule', { value: true });
+const require_src = require('./src-BHUamkzE.cjs');
+require('./constants-bWtGtIdS.cjs');
+let unplugin = require("unplugin");
+unplugin = require_src.__toESM(unplugin);
+
+//#region src/rollup.ts
+/**
+* Rollup plugin
+*
+* @example
+* ```ts
+* // rollup.config.js
+* import yaml from "unplugin-yaml/rollup"
+*
+* export default {
+*   plugins: [yaml()],
+* }
+* ```
+*/
+var rollup_default = (0, unplugin.createRollupPlugin)(require_src.unpluginFactory);
+
+//#endregion
+exports.default = rollup_default;

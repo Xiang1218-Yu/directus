@@ -1,0 +1,4 @@
+const require_constants = require('./constants-bWtGtIdS.cjs');
+
+exports.NUXT_CONFIG_KEY = require_constants.NUXT_CONFIG_KEY;
+exports.PLUGIN_NAME = require_constants.PLUGIN_NAME;

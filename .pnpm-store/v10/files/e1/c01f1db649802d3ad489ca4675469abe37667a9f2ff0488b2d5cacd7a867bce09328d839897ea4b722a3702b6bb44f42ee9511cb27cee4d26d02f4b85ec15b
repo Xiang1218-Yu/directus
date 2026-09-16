@@ -1,0 +1,22 @@
+import "./constants-DEnDBOsM.js";
+import { r as unpluginFactory } from "./src-X7BiPJ-v.js";
+import { createFarmPlugin } from "unplugin";
+
+//#region src/farm.ts
+/**
+* Farm plugin
+*
+* @example
+* ```ts
+* // farm.config.ts
+* import yaml from "unplugin-yaml/farm"
+*
+* export default defineConfig({
+*   plugins: [yaml()],
+* }
+* ```
+*/
+var farm_default = createFarmPlugin(unpluginFactory);
+
+//#endregion
+export { farm_default as default };

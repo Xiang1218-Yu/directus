@@ -103,6 +103,12 @@ data:
   - collection: directus_operations
     note: $t:directus_collection.directus_operations
 
+  - collection: directus_flow_sessions
+    icon: bug_report
+    hidden: true
+    note: $t:directus_collection.directus_flow_sessions
+    accountability: null
+
   - collection: directus_translations
     note: $t:directus_collection.directus_translations
 

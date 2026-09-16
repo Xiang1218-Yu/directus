@@ -1,0 +1,49 @@
+{
+  "name": "@directus/tsconfig",
+  "version": "4.0.0",
+  "description": "TSConfig files used in Directus projects",
+  "author": {
+    "name": "Monospace Inc",
+    "email": "info@monospace.io",
+    "url": "https://monospace.io"
+  },
+  "license": "MIT",
+  "funding": "https://github.com/directus/directus?sponsor=1",
+  "homepage": "https://directus.io",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/directus/tsconfig.git"
+  },
+  "exports": {
+    "./base": "./configs/base/tsconfig.json",
+    "./node22": "./configs/node22/tsconfig.json",
+    "./vue3": "./configs/vue3/tsconfig.json",
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "pnpm": "10"
+  },
+  "maintainers": [
+    {
+      "name": "Rijk van Zanten",
+      "email": "rijkvanzanten@me.com",
+      "url": "https://github.com/rijkvanzanten"
+    },
+    {
+      "name": "Pascal Jufer",
+      "email": "pascal@directus.io",
+      "url": "https://github.com/paescuj"
+    }
+  ],
+  "devDependencies": {
+    "@directus/eslint-config": "0.1.0",
+    "eslint": "9.21.0",
+    "tinyrainbow": "2.0.0",
+    "tsconfck": "3.1.5",
+    "typescript": "5.7.3"
+  },
+  "scripts": {
+    "lint": "eslint",
+    "test": "node test.mjs"
+  }
+}

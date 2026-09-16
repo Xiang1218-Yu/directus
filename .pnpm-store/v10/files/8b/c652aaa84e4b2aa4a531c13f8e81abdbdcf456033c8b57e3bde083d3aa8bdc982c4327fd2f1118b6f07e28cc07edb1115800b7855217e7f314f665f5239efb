@@ -1,0 +1,86 @@
+
+.sp-root {
+&[data-v-4dbe2ceb] {
+	display: grid;
+}
+&.sp-collapsing[data-v-4dbe2ceb] {
+		transition-duration: var(--4dbe2ceb-transitionDurationCss);
+		transition-timing-function: var(--4dbe2ceb-transitionTimingFunctionCollapse);
+}
+&.sp-expanding[data-v-4dbe2ceb] {
+		transition-duration: var(--4dbe2ceb-transitionDurationCss);
+		transition-timing-function: var(--4dbe2ceb-transitionTimingFunctionExpand);
+}
+&.sp-horizontal {
+&[data-v-4dbe2ceb] {
+		grid-template-columns: var(--4dbe2ceb-gridTemplate);
+}
+&.sp-collapsing[data-v-4dbe2ceb],
+		&.sp-expanding[data-v-4dbe2ceb] {
+			transition-property: grid-template-columns;
+}
+&.sp-dragging[data-v-4dbe2ceb] {
+			cursor: ew-resize;
+}
+}
+&.sp-vertical {
+&[data-v-4dbe2ceb] {
+		grid-template-rows: var(--4dbe2ceb-gridTemplate);
+}
+&.sp-collapsing[data-v-4dbe2ceb],
+		&.sp-expanding[data-v-4dbe2ceb] {
+			transition-property: grid-template-rows;
+}
+&.sp-dragging[data-v-4dbe2ceb] {
+			cursor: ns-resize;
+}
+}
+&.sp-dragging[data-v-4dbe2ceb] {
+		user-select: none;
+}
+}
+.sp-start[data-v-4dbe2ceb],
+.sp-end[data-v-4dbe2ceb] {
+	overflow: hidden;
+}
+.sp-divider {
+&[data-v-4dbe2ceb] {
+	position: relative;
+	z-index: 1;
+}
+&:not(.disabled) {
+&[data-v-4dbe2ceb] > :first-child {
+&::after {
+				content: "";
+				position: absolute;
+}
+}
+&.sp-horizontal {
+&[data-v-4dbe2ceb] {
+			block-size: 100%;
+			inline-size: max-content;
+}
+&[data-v-4dbe2ceb] > :first-child::after {
+				block-size: 100%;
+				inset-inline-start: calc(var(--4dbe2ceb-dividerHitArea) / -2 + var(--4dbe2ceb-dividerSize) * 1px / 2);
+				inset-block-start: 0;
+				inline-size: var(--4dbe2ceb-dividerHitArea);
+				cursor: ew-resize;
+}
+}
+&.sp-vertical {
+&[data-v-4dbe2ceb] {
+			inline-size: 100%;
+			block-size: max-content;
+}
+&[data-v-4dbe2ceb] > :first-child::after {
+				inline-size: 100%;
+				inset-block-start: calc(var(--4dbe2ceb-dividerHitArea) / -2 + var(--4dbe2ceb-dividerSize) * 1px / 2);
+				inset-inline-start: 0;
+				block-size: var(--4dbe2ceb-dividerHitArea);
+				cursor: ns-resize;
+}
+}
+}
+}
+

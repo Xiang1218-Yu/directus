@@ -1,0 +1,39 @@
+{
+  "name": "@codexteam/ajax",
+  "exportModuleName": "ajax",
+  "version": "4.2.0",
+  "description": "Native AJAX module",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "webpack --mode production",
+    "build:dev": "webpack --mode development --watch",
+    "start": "nodemon dev/server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/codex-team/ajax.git"
+  },
+  "author": {
+    "name": "Taly Guryn",
+    "url": "https://github.com/talyguryn"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/codex-team/ajax/issues"
+  },
+  "homepage": "https://github.com/codex-team/ajax#readme",
+  "devDependencies": {
+    "@babel/core": "^7.3.4",
+    "@babel/preset-env": "^7.3.4",
+    "babel-loader": "^8.0.5",
+    "eslint": "^5.15.1",
+    "eslint-config-codex": "^1.3.6",
+    "express": "^4.16.4",
+    "http-build-query": "^0.7.0",
+    "multer": "^1.4.1",
+    "nodemon": "^1.18.10",
+    "promise-polyfill": "^8.1.0",
+    "webpack": "^4.29.6",
+    "webpack-cli": "^3.2.3"
+  }
+}

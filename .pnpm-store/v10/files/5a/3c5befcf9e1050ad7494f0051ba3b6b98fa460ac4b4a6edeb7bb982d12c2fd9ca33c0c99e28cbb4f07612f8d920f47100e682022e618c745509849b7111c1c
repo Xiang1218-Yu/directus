@@ -1,0 +1,28 @@
+# Installation
+> `npm install --save @types/diacritics`
+
+# Summary
+This package contains type definitions for diacritics (https://github.com/andrewrk/node-diacritics).
+
+# Details
+Files were exported from https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/diacritics.
+## [index.d.ts](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/diacritics/index.d.ts)
+````ts
+export function remove(str: string): string;
+export const replacementList: Array<{
+    base: string;
+    chars: string;
+}>;
+
+export const diacriticsMap: {
+    [key: string]: string;
+};
+
+````
+
+### Additional Details
+ * Last updated: Mon, 06 Nov 2023 22:41:05 GMT
+ * Dependencies: none
+
+# Credits
+These definitions were written by [Oto Ciulis](https://github.com/otociulis).

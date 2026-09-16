@@ -1,0 +1,112 @@
+//#region rolldown:runtime
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __copyProps = (to, from, except, desc) => {
+	if (from && typeof from === "object" || typeof from === "function") for (var keys = __getOwnPropNames(from), i = 0, n = keys.length, key; i < n; i++) {
+		key = keys[i];
+		if (!__hasOwnProp.call(to, key) && key !== except) __defProp(to, key, {
+			get: ((k) => from[k]).bind(null, key),
+			enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable
+		});
+	}
+	return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", {
+	value: mod,
+	enumerable: true
+}) : target, mod));
+
+//#endregion
+const require_constants = require('./constants-bWtGtIdS.cjs');
+let node_fs_promises = require("node:fs/promises");
+node_fs_promises = __toESM(node_fs_promises);
+let node_path = require("node:path");
+node_path = __toESM(node_path);
+let __rollup_pluginutils = require("@rollup/pluginutils");
+__rollup_pluginutils = __toESM(__rollup_pluginutils);
+let unplugin = require("unplugin");
+unplugin = __toESM(unplugin);
+let yaml = require("yaml");
+yaml = __toESM(yaml);
+
+//#region src/index.ts
+const PREFIX = `\0virtual:yaml:`;
+/**
+* A unplugin factory, used by Unplugin to create a new plugin instance.
+*/
+const unpluginFactory = (options = {}) => {
+	const filter = (0, __rollup_pluginutils.createFilter)(options.include || /\.ya?ml(\?raw)?$/);
+	const type = options.type || "single";
+	return {
+		name: require_constants.PLUGIN_NAME,
+		enforce: "pre",
+		transformInclude(id) {
+			return filter(id);
+		},
+		transform(code, id) {
+			if (id.endsWith("?raw")) return `${code}`;
+			let parsed = {};
+			if (type === "multi") parsed = (0, yaml.parseAllDocuments)(code, options.parserOptions).map((doc) => doc.toJSON());
+			else parsed = (0, yaml.parse)(code, options.parserOptions);
+			let content = parsed;
+			if (options.transform != null && typeof options.transform === "function") {
+				const transformed = options.transform(content, id);
+				if (transformed != null) content = transformed;
+			}
+			return `var data = ${JSON.stringify(content, null, 2)};\n\nexport default data;`;
+		},
+		resolveId(id, importer) {
+			if (/\.ya?ml\?raw$/.test(id) && importer) {
+				const [relativePath] = id.split("?raw");
+				return `${PREFIX}${(0, node_path.join)((0, node_path.dirname)(importer), relativePath)}:raw`;
+			}
+		},
+		async load(id) {
+			if (!id.startsWith(PREFIX)) return;
+			id = id.slice(PREFIX.length);
+			if (id.endsWith(":raw")) id = id.slice(0, -4);
+			const path = id;
+			if (!path) throw new Error("invalid path can't read yaml file");
+			const content = (await (0, node_fs_promises.readFile)(path, "utf-8")).replace(/\r\n/g, "\n");
+			return {
+				code: `export default ${JSON.stringify(content)}`,
+				map: null
+			};
+		}
+	};
+};
+/**
+* The main unplugin instance.
+*/
+const unplugin$1 = /* @__PURE__ */ (0, unplugin.createUnplugin)(unpluginFactory);
+var src_default = unplugin$1;
+
+//#endregion
+Object.defineProperty(exports, '__toESM', {
+  enumerable: true,
+  get: function () {
+    return __toESM;
+  }
+});
+Object.defineProperty(exports, 'src_default', {
+  enumerable: true,
+  get: function () {
+    return src_default;
+  }
+});
+Object.defineProperty(exports, 'unplugin', {
+  enumerable: true,
+  get: function () {
+    return unplugin$1;
+  }
+});
+Object.defineProperty(exports, 'unpluginFactory', {
+  enumerable: true,
+  get: function () {
+    return unpluginFactory;
+  }
+});

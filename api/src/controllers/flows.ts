@@ -1,4 +1,4 @@
-import { ErrorCode, isDirectusError } from '@directus/errors';
+import { ErrorCode, InvalidPayloadError, isDirectusError } from '@directus/errors';
 import type { PrimaryKey } from '@directus/types';
 import express from 'express';
 import { UUID_REGEX } from '../constants.js';
@@ -7,6 +7,7 @@ import checkIsLocked from '../middleware/is-locked.js';
 import { respond } from '../middleware/respond.js';
 import useCollection from '../middleware/use-collection.js';
 import { validateBatch } from '../middleware/validate-batch.js';
+import { FlowSessionsService } from '../services/flow-sessions.js';
 import { FlowsService } from '../services/flows.js';
 import { MetaService } from '../services/meta.js';
 import asyncHandler from '../utils/async-handler.js';
@@ -44,6 +45,102 @@ const webhookFlowHandler = asyncHandler(async (req, res, next) => {
 
 router.get(`/trigger/:pk(${UUID_REGEX})`, checkIsLocked('flows'), webhookFlowHandler, respond);
 router.post(`/trigger/:pk(${UUID_REGEX})`, checkIsLocked('flows'), webhookFlowHandler, respond);
+
+// ------------- Flow debug sessions ------------- //
+
+router.post(
+	`/:pk(${UUID_REGEX})/sessions`,
+	checkIsLocked('flows'),
+	asyncHandler(async (req, res, next) => {
+		if (req.body === undefined || typeof req.body !== 'object' || Array.isArray(req.body)) {
+			throw new InvalidPayloadError({ reason: '"input" is required' });
+		}
+
+		const service = new FlowSessionsService({
+			accountability: req.accountability,
+			schema: req.schema,
+		});
+
+		const key = await service.startSession(req.params['pk']!, req.body['input'] ?? null, req.body['name'] ?? undefined);
+
+		const session = await service.readSession(String(key));
+
+		res.locals['payload'] = { data: session };
+		return next();
+	}),
+	respond,
+);
+
+router.get(
+	`/:pk(${UUID_REGEX})/sessions`,
+	asyncHandler(async (req, res, next) => {
+		const service = new FlowSessionsService({
+			accountability: req.accountability,
+			schema: req.schema,
+		});
+
+		res.locals['payload'] = { data: await service.readFlowSessions(req.params['pk']!) };
+		return next();
+	}),
+	respond,
+);
+
+const sessionActionHandler = (action: 'rerun' | 'cancel') =>
+	asyncHandler(async (req, res, next) => {
+		const service = new FlowSessionsService({
+			accountability: req.accountability,
+			schema: req.schema,
+		});
+
+		if (action === 'rerun') {
+			await service.rerun(
+				req.params['session']!,
+				req.body?.['operation'] === undefined ? null : String(req.body['operation']),
+				'input' in (req.body ?? {}) ? req.body['input'] : undefined,
+			);
+		} else {
+			await service.cancel(req.params['session']!);
+		}
+
+		const session = await service.readSession(req.params['session']!);
+
+		res.locals['payload'] = { data: session };
+		return next();
+	});
+
+router.post(`/sessions/:session(${UUID_REGEX})/rerun`, checkIsLocked('flows'), sessionActionHandler('rerun'), respond);
+
+router.post(`/sessions/:session(${UUID_REGEX})/cancel`, sessionActionHandler('cancel'), respond);
+
+router.patch(
+	`/sessions/:session(${UUID_REGEX})`,
+	asyncHandler(async (req, res, next) => {
+		const service = new FlowSessionsService({
+			accountability: req.accountability,
+			schema: req.schema,
+		});
+
+		await service.markStatus(req.params['session']!, req.body['status']);
+
+		res.locals['payload'] = { data: await service.readSession(req.params['session']!) };
+		return next();
+	}),
+	respond,
+);
+
+router.delete(
+	`/sessions/:session(${UUID_REGEX})`,
+	asyncHandler(async (req, _res, next) => {
+		const service = new FlowSessionsService({
+			accountability: req.accountability,
+			schema: req.schema,
+		});
+
+		await service.deleteOne(req.params['session']!);
+		return next();
+	}),
+	respond,
+);
 
 router.post(
 	'/',

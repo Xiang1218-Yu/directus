@@ -1,0 +1,18 @@
+
+//#region src/constants.ts
+const PLUGIN_NAME = "unplugin-yaml";
+const NUXT_CONFIG_KEY = "yaml";
+
+//#endregion
+Object.defineProperty(exports, 'NUXT_CONFIG_KEY', {
+  enumerable: true,
+  get: function () {
+    return NUXT_CONFIG_KEY;
+  }
+});
+Object.defineProperty(exports, 'PLUGIN_NAME', {
+  enumerable: true,
+  get: function () {
+    return PLUGIN_NAME;
+  }
+});

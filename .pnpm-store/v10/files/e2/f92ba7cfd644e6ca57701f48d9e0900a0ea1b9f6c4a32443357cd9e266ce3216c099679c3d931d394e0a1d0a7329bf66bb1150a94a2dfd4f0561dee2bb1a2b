@@ -1,0 +1,30 @@
+Object.defineProperty(exports, '__esModule', { value: true });
+const require_src = require('./src-BHUamkzE.cjs');
+const require_constants = require('./constants-bWtGtIdS.cjs');
+
+//#region src/astro.ts
+/**
+* Astro integration
+*
+* @example
+* ```ts
+* // astro.config.mjs
+* import yaml from "unplugin-yaml/astro"
+*
+* export default defineConfig({
+*   integrations: [yaml()],
+* })
+* ```
+*/
+function YamlIntegration(options) {
+	return {
+		name: require_constants.PLUGIN_NAME,
+		hooks: { "astro:config:setup": async (astro) => {
+			astro.config.vite.plugins ||= [];
+			astro.config.vite.plugins.push(require_src.unplugin.vite(options));
+		} }
+	};
+}
+
+//#endregion
+exports.default = YamlIntegration;

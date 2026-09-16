@@ -29,6 +29,7 @@ import * as services from './services/index.js';
 import { RevisionsService } from './services/revisions.js';
 import type { EventHandler } from './types/index.js';
 import { constructFlowTree } from './utils/construct-flow-tree.js';
+import { FLOW_REDACT_KEYS } from './utils/flow-redaction.js';
 import { getSchema } from './utils/get-schema.js';
 import { getService } from './utils/get-service.js';
 import { isUnauthenticated } from './utils/is-unauthenticated.js';
@@ -59,6 +60,40 @@ const ENV_KEY = '$env';
 
 interface FlowMessage {
 	type: 'reload';
+}
+
+export interface FlowDebugStep {
+	operation: string;
+	key: string;
+	status: 'resolve' | 'reject' | 'unknown';
+	options: Record<string, any> | null;
+	data: unknown;
+}
+
+export interface DebugFlowOptions {
+	/** Operation id to start (or resume) the run from. Defaults to the flow's first operation. */
+	startAtOperation?: string | null;
+	/** Previously captured, redacted operation keyed data used to rebuild state when resuming. */
+	seedData?: Record<string, unknown> | null;
+	/** Polled before every operation; returning true aborts the run. */
+	shouldCancel?: () => Promise<boolean> | boolean;
+	/** Called after every executed operation so progress can be persisted incrementally. */
+	onStep?: (step: FlowDebugStep) => Promise<void> | void;
+}
+
+export interface DebugFlowResult {
+	steps: FlowDebugStep[];
+	lastOperationStatus: 'resolve' | 'reject' | 'unknown';
+	lastData: unknown;
+	cancelled: boolean;
+}
+
+interface ExecuteFlowOptions {
+	debug: boolean;
+	startAtOperation: string | null;
+	seedData: Record<string, unknown> | null;
+	shouldCancel: () => Promise<boolean> | boolean;
+	onStep?: (step: FlowDebugStep) => Promise<void> | void;
 }
 
 class FlowManager {
@@ -152,6 +187,25 @@ class FlowManager {
 
 	public getFlow(id: string): Flow | undefined {
 		return this.flows[id];
+	}
+
+	/**
+	 * Execute a flow (or a remaining branch of it) for a debug session. Bypasses trigger registration,
+	 * records every operation's output and never creates activity/revisions entries.
+	 */
+	public async runDebugFlow(
+		flow: Flow,
+		data: unknown,
+		context: Record<string, unknown> = {},
+		options: DebugFlowOptions = {},
+	): Promise<DebugFlowResult> {
+		return (await this.executeFlow(flow, data, context, {
+			startAtOperation: options.startAtOperation ?? null,
+			debug: true,
+			seedData: options.seedData ?? null,
+			shouldCancel: options.shouldCancel ?? (() => false),
+			...(options.onStep ? { onStep: options.onStep } : {}),
+		})) as DebugFlowResult;
 	}
 
 	private async load(): Promise<void> {
@@ -391,7 +445,33 @@ class FlowManager {
 		this.isLoaded = false;
 	}
 
-	private async executeFlow(flow: Flow, data: unknown = null, context: Record<string, unknown> = {}): Promise<unknown> {
+	private findOperation(flow: Flow, operationId: string): Operation | null {
+		const queue: (Operation | null)[] = [flow.operation];
+		const visited = new Set<string>();
+
+		while (queue.length > 0) {
+			const operation = queue.shift()!;
+			if (!operation || visited.has(operation.id)) continue;
+			if (operation.id === operationId) return operation;
+
+			visited.add(operation.id);
+			queue.push(operation.resolve, operation.reject);
+		}
+
+		return null;
+	}
+
+	private async executeFlow(
+		flow: Flow,
+		data: unknown = null,
+		context: Record<string, unknown> = {},
+		execOptions: ExecuteFlowOptions = {
+			debug: false,
+			startAtOperation: null,
+			seedData: null,
+			shouldCancel: () => false,
+		},
+	): Promise<unknown> {
 		const database = (context['database'] as Knex) ?? getDatabase();
 		const schema = (context['schema'] as SchemaOverview) ?? (await getSchema({ database }));
 
@@ -400,29 +480,58 @@ class FlowManager {
 			[LAST_KEY]: data,
 			[ACCOUNTABILITY_KEY]: context?.['accountability'] ?? null,
 			[ENV_KEY]: this.envs,
+			...execOptions.seedData,
 		};
 
 		context['flow'] ??= flow;
 
-		let nextOperation = flow.operation;
+		let nextOperation: Operation | null = flow.operation;
+
+		if (execOptions.startAtOperation) {
+			const startOperation = this.findOperation(flow, execOptions.startAtOperation);
+			if (!startOperation) throw new ForbiddenError();
+			nextOperation = startOperation;
+		}
+
 		let lastOperationStatus: 'resolve' | 'reject' | 'unknown' = 'unknown';
 
-		const steps: {
-			operation: string;
-			key: string;
-			status: 'resolve' | 'reject' | 'unknown';
-			options: Record<string, any> | null;
-		}[] = [];
+		const steps: FlowDebugStep[] = [];
+
+		let cancelled = false;
 
 		while (nextOperation !== null) {
+			if (execOptions.debug && (await execOptions.shouldCancel())) {
+				cancelled = true;
+				break;
+			}
+
 			const { successor, data, status, options } = await this.executeOperation(nextOperation, keyedData, context);
 
 			keyedData[nextOperation.key] = data;
 			keyedData[LAST_KEY] = data;
 			lastOperationStatus = status;
-			steps.push({ operation: nextOperation!.id, key: nextOperation.key, status, options });
+			steps.push({ operation: nextOperation!.id, key: nextOperation.key, status, options, data });
+
+			if (execOptions.debug && execOptions.onStep) {
+				await execOptions.onStep({
+					operation: nextOperation!.id,
+					key: nextOperation.key,
+					status,
+					options,
+					data,
+				});
+			}
 
 			nextOperation = successor;
+		}
+
+		if (execOptions.debug) {
+			return {
+				steps,
+				lastOperationStatus,
+				lastData: keyedData[LAST_KEY],
+				cancelled,
+			} satisfies DebugFlowResult;
 		}
 
 		if (flow.accountability !== null) {
@@ -454,25 +563,13 @@ class FlowManager {
 					collection: 'directus_flows',
 					item: flow.id,
 					data: {
-						steps: steps.map((step) => redactObject(step, { values: this.envs }, getRedactedString)),
+						steps: steps.map(({ operation, key, status, options }) =>
+							redactObject({ operation, key, status, options }, { values: this.envs }, getRedactedString),
+						),
 						data: redactObject(
 							keyedData,
 							{
-								keys: [
-									['**', 'headers', 'authorization'],
-									['**', 'headers', 'cookie'],
-									['**', 'query', 'access_token'],
-									['**', 'payload', 'password'],
-									['**', 'payload', 'token'],
-									['**', 'payload', 'tfa_secret'],
-									['**', 'payload', 'external_identifier'],
-									['**', 'payload', 'auth_data'],
-									['**', 'payload', 'credentials'],
-									['**', 'payload', 'ai_openai_api_key'],
-									['**', 'payload', 'ai_anthropic_api_key'],
-									['**', 'payload', 'ai_google_api_key'],
-									['**', 'payload', 'ai_openai_compatible_api_key'],
-								],
+								keys: FLOW_REDACT_KEYS,
 								values: this.envs,
 							},
 							getRedactedString,
@@ -530,21 +627,7 @@ class FlowManager {
 			optionData = redactObject(
 				keyedData,
 				{
-					keys: [
-						['**', 'headers', 'authorization'],
-						['**', 'headers', 'cookie'],
-						['**', 'query', 'access_token'],
-						['**', 'payload', 'password'],
-						['**', 'payload', 'token'],
-						['**', 'payload', 'tfa_secret'],
-						['**', 'payload', 'external_identifier'],
-						['**', 'payload', 'auth_data'],
-						['**', 'payload', 'credentials'],
-						['**', 'payload', 'ai_openai_api_key'],
-						['**', 'payload', 'ai_anthropic_api_key'],
-						['**', 'payload', 'ai_google_api_key'],
-						['**', 'payload', 'ai_openai_compatible_api_key'],
-					],
+					keys: FLOW_REDACT_KEYS,
 				},
 				getRedactedString,
 			);

@@ -1,0 +1,24 @@
+Object.defineProperty(exports, '__esModule', { value: true });
+const require_src = require('./src-BHUamkzE.cjs');
+require('./constants-bWtGtIdS.cjs');
+let unplugin = require("unplugin");
+unplugin = require_src.__toESM(unplugin);
+
+//#region src/farm.ts
+/**
+* Farm plugin
+*
+* @example
+* ```ts
+* // farm.config.ts
+* import yaml from "unplugin-yaml/farm"
+*
+* export default defineConfig({
+*   plugins: [yaml()],
+* }
+* ```
+*/
+var farm_default = (0, unplugin.createFarmPlugin)(require_src.unpluginFactory);
+
+//#endregion
+exports.default = farm_default;

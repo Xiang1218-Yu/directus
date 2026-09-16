@@ -10,6 +10,7 @@ import {
 	DeploymentService,
 	FilesService,
 	FlowsService,
+	FlowSessionsService,
 	FoldersService,
 	ItemsService,
 	NotificationsService,
@@ -45,6 +46,8 @@ export function getService(collection: string, opts: AbstractServiceOptions): It
 			return new FilesService(opts);
 		case 'directus_flows':
 			return new FlowsService(opts);
+		case 'directus_flow_sessions':
+			return new FlowSessionsService(opts);
 		case 'directus_folders':
 			return new FoldersService(opts);
 		case 'directus_notifications':

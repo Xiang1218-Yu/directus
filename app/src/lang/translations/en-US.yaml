@@ -1741,6 +1741,7 @@ directus_collection:
   directus_fields: Additional field configuration and metadata
   directus_files: Metadata for all managed file assets
   directus_flows: Automation Flows
+  directus_flow_sessions: Saved debug sessions for Flows
   directus_folders: Provides virtual directories for files
   directus_migrations: What version of the database you're using
   directus_notifications: Notifications sent to users
@@ -3377,5 +3378,41 @@ text_direction_auto: Automatic (Match Language)
 text_direction_ltr: Left to Right (LTR)
 text_direction_rtl: Right to Left (RTL)
 set_to_now: Set to Now
+
+output: Output
+run: Run
+successful: Successful
+failed_label: Failed
+canceled: Canceled
+final_error: Final Error
+debug_sessions: Debug Sessions
+debug_session: Debug Session
+start_debug_session: Start Debug Session
+test_input_json: Test input (JSON)
+test_input: Test Input
+name_optional: Name (optional)
+debug_input_redaction_notice:
+  Sensitive values such as passwords, tokens and authorization headers are redacted before the session is saved.
+debug_sessions_load_error: Could not load debug sessions
+no_debug_sessions: No debug sessions yet
+no_debug_sessions_hint: Start a session with test input to inspect each node's output
+invalid_json: Please enter valid JSON
+live_updates_connected: Live updates connected
+attempts_count: '{count} attempts'
+steps_count: '{count} nodes'
+flow_session_status_running: Running
+flow_session_status_cancelling: Cancelling…
+flow_session_status_succeeded: Succeeded
+flow_session_status_failed: Failed
+flow_session_status_cancelled: Cancelled
+cancel_run: Cancel Run
+rerun_from_trigger: Rerun from Trigger
+rerun_remaining_branch: Rerun Remaining Branch
+rerun_from_node: Rerun from this node
+mark_session_as: Mark as
+session_cancelling_notice: The run is being cancelled after the current node finishes.
+waiting_for_first_node: Waiting for the first node to finish…
+no_nodes_executed: No nodes were executed
+completed_at: Completed {date}
 aria:
   more_options: More options

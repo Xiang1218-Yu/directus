@@ -1,0 +1,19 @@
+import "./types-BWrchNCm.js";
+import { t as unplugin } from "./index-DZgEc0YS.js";
+
+//#region src/webpack.d.ts
+
+/**
+ * Webpack plugin
+ *
+ * @example
+ * ```ts
+ * // webpack.config.js
+ * module.exports = {
+ *  plugins: [require("unplugin-yaml/webpack")()],
+ * }
+ * ```
+ */
+declare const _default: typeof unplugin.webpack;
+//#endregion
+export { _default as default };

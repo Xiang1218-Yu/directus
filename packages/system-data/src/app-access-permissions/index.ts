@@ -225,4 +225,40 @@ export const appRecommendedPermissions: Partial<Permission>[] = [
 		},
 		fields: ['id', 'status', 'name', 'icon', 'color', 'options', 'trigger'],
 	},
+	{
+		collection: 'directus_flow_sessions',
+		action: 'create',
+		permissions: {},
+		fields: ['*'],
+	},
+	{
+		collection: 'directus_flow_sessions',
+		action: 'read',
+		permissions: {
+			user_created: {
+				_eq: '$CURRENT_USER',
+			},
+		},
+		fields: ['*'],
+	},
+	{
+		collection: 'directus_flow_sessions',
+		action: 'update',
+		permissions: {
+			user_created: {
+				_eq: '$CURRENT_USER',
+			},
+		},
+		fields: ['status'],
+	},
+	{
+		collection: 'directus_flow_sessions',
+		action: 'delete',
+		permissions: {
+			user_created: {
+				_eq: '$CURRENT_USER',
+			},
+		},
+		fields: ['*'],
+	},
 ];

@@ -1,0 +1,84 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.filterPkgMetadataByPublishDate = filterPkgMetadataByPublishDate;
+const logger_1 = require("@pnpm/logger");
+const semver_1 = __importDefault(require("semver"));
+function filterPkgMetadataByPublishDate(pkgDoc, publishedBy, trustedVersions) {
+    const versionsWithinDate = {};
+    for (const version in pkgDoc.versions) {
+        if (!Object.hasOwn(pkgDoc.versions, version))
+            continue;
+        const timeStr = pkgDoc.time[version];
+        if ((timeStr && new Date(timeStr) <= publishedBy) || trustedVersions?.includes(version)) {
+            versionsWithinDate[version] = pkgDoc.versions[version];
+        }
+    }
+    const distTagsWithinDate = {};
+    const allDistTags = pkgDoc['dist-tags'] ?? {};
+    const parsedSemverCache = new Map();
+    function tryParseSemver(semverStr) {
+        let parsedSemver = parsedSemverCache.get(semverStr);
+        if (!parsedSemver) {
+            try {
+                parsedSemver = new semver_1.default.SemVer(semverStr, true);
+            }
+            catch {
+                return null;
+            }
+            parsedSemverCache.set(semverStr, parsedSemver);
+        }
+        return parsedSemver;
+    }
+    for (const tag in allDistTags) {
+        if (!Object.hasOwn(allDistTags, tag))
+            continue;
+        const distTagVersion = allDistTags[tag];
+        if (versionsWithinDate[distTagVersion]) {
+            distTagsWithinDate[tag] = distTagVersion;
+            continue;
+        }
+        // Repopulate the tag to the highest version available within date
+        const originalSemVer = tryParseSemver(distTagVersion);
+        if (!originalSemVer)
+            continue;
+        const originalIsPrerelease = (originalSemVer.prerelease.length > 0);
+        let bestVersion;
+        for (const candidate in versionsWithinDate) {
+            if (!Object.hasOwn(versionsWithinDate, candidate))
+                continue;
+            const candidateParsed = tryParseSemver(candidate);
+            if (!candidateParsed ||
+                (tag !== 'latest' && candidateParsed.major !== originalSemVer.major) ||
+                (candidateParsed.prerelease.length > 0) !== originalIsPrerelease)
+                continue;
+            if (!bestVersion) {
+                bestVersion = candidate;
+            }
+            else {
+                try {
+                    const candidateIsDeprecated = pkgDoc.versions[candidate].deprecated != null;
+                    const bestVersionIsDeprecated = pkgDoc.versions[bestVersion].deprecated != null;
+                    if ((semver_1.default.gt(candidate, bestVersion, true) && (bestVersionIsDeprecated === candidateIsDeprecated)) ||
+                        (bestVersionIsDeprecated && !candidateIsDeprecated)) {
+                        bestVersion = candidate;
+                    }
+                }
+                catch (err) {
+                    (0, logger_1.globalWarn)(`Failed to compare semver versions ${candidate} and ${bestVersion} from packument of ${pkgDoc.name}, skipping candidate version.`);
+                }
+            }
+        }
+        if (bestVersion) {
+            distTagsWithinDate[tag] = bestVersion;
+        }
+    }
+    return {
+        ...pkgDoc,
+        versions: versionsWithinDate,
+        'dist-tags': distTagsWithinDate,
+    };
+}
+//# sourceMappingURL=index.js.map

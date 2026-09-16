@@ -159,6 +159,17 @@ data:
     many_field: user_created
     one_collection: directus_users
 
+  ### Flow debug sessions
+  - many_collection: directus_flow_sessions
+    many_field: flow
+    one_collection: directus_flows
+    one_field: sessions
+    one_deselect_action: delete
+
+  - many_collection: directus_flow_sessions
+    many_field: user_created
+    one_collection: directus_users
+
   ### Sessions
   - many_collection: directus_sessions
     many_field: user

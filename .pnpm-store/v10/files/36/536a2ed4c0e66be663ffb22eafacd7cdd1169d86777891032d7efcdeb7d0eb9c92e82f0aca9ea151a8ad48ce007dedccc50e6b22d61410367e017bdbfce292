@@ -1,0 +1,6 @@
+export interface JsrSpec {
+    jsrPkgName: string;
+    npmPkgName: string;
+    versionSelector?: string;
+}
+export declare function parseJsrSpecifier(rawSpecifier: string, alias?: string): JsrSpec | null;

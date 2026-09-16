@@ -9,6 +9,7 @@ import { RouterView } from 'vue-router';
 import SettingsNavigation from '../../components/navigation.vue';
 import SettingsNotFound from '../not-found.vue';
 import Arrows from './components/arrows/arrows.vue';
+import DebugSessionsSidebar from './components/debug-sessions-sidebar.vue';
 import LogsSidebarDetail from './components/logs-sidebar-detail.vue';
 import Operation, { ArrowInfo, Target } from './components/operation.vue';
 import { ATTACHMENT_OFFSET, GRID_SIZE, PANEL_HEIGHT, PANEL_WIDTH } from './constants';
@@ -656,6 +657,7 @@ function discardAndLeave() {
 		</template>
 
 		<template #sidebar>
+			<DebugSessionsSidebar v-if="flow" :flow="flow" />
 			<LogsSidebarDetail v-if="flow" :flow="flow" />
 		</template>
 
