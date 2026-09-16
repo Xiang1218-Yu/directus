@@ -35,6 +35,10 @@ export type Info = {
 	mcp_oauth_cimd_enabled: boolean;
 	files?: {
 		mimeTypeAllowList: string[];
+		dedupe?: {
+			enabled: boolean;
+			algorithm: string;
+		};
 	};
 	setupCompleted: boolean;
 	setup: {

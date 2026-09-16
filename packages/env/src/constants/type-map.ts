@@ -30,6 +30,8 @@ export const TYPE_MAP: Record<string, EnvType> = {
 
 	FILE_METADATA_ALLOW_LIST: 'array',
 	FILES_DELETE_ORIGINAL_ON_MOVE: 'boolean',
+	FILES_DEDUPE_ENABLED: 'boolean',
+	FILES_DEDUPE_ALGORITHM: 'string',
 
 	ASSETS_CACHE_REVALIDATE: 'boolean',
 

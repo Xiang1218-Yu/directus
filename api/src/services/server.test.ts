@@ -142,4 +142,36 @@ describe('ServerService', () => {
 
 		expect(info['project_owner_enabled']).toBe(false);
 	});
+
+	test('serverInfo exposes the file deduplication configuration for authenticated users', async () => {
+		Object.assign(mockEnv, { FILES_DEDUPE_ENABLED: true, FILES_DEDUPE_ALGORITHM: 'sha512' });
+
+		tracker.on.select('directus_users').response([{ id: 'user-id' }]);
+
+		const service = new ServerService({
+			knex: db,
+			schema: {} as any,
+			accountability: { user: 'user-id', admin: false } as any,
+		});
+
+		const info = await service.serverInfo();
+
+		expect(info['files']?.['dedupe']).toEqual({ enabled: true, algorithm: 'sha512' });
+	});
+
+	test('serverInfo reports file deduplication as disabled by default', async () => {
+		Object.assign(mockEnv, { FILES_DEDUPE_ENABLED: false, FILES_DEDUPE_ALGORITHM: 'sha256' });
+
+		tracker.on.select('directus_users').response([{ id: 'user-id' }]);
+
+		const service = new ServerService({
+			knex: db,
+			schema: {} as any,
+			accountability: { user: 'user-id', admin: false } as any,
+		});
+
+		const info = await service.serverInfo();
+
+		expect(info['files']?.['dedupe']).toEqual({ enabled: false, algorithm: 'sha256' });
+	});
 });

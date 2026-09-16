@@ -116,6 +116,10 @@ export async function createTusServer(context: Context): Promise<[Server, () => 
 			return {
 				headers: {
 					'Directus-File-Id': upload.metadata!['id']!,
+					// The checksum is set when file deduplication is enabled
+					...((fileData as Record<string, unknown>)['checksum']
+						? { 'Directus-File-Checksum': String((fileData as Record<string, unknown>)['checksum']) }
+						: {}),
 				},
 			};
 		},

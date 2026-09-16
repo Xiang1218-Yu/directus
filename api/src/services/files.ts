@@ -34,6 +34,17 @@ import { getStorage } from '../storage/index.js';
 import { transaction } from '../utils/transaction.js';
 import { assertUniqueFilename } from './files/lib/assert-unique-filename.js';
 import { assertValidStoragePath } from './files/lib/assert-valid-storage-path.js';
+import {
+	BYPASSED_DEDUPE_RESULT,
+	type ChecksumStream,
+	countFileReferences,
+	createChecksumStream,
+	type DedupeResult,
+	findDedupeCandidate,
+	getAvailableFilenameDisk,
+	getDedupeAlgorithm,
+	isDedupeEnabled,
+} from './files/lib/dedupe.js';
 import { extractMetadata } from './files/lib/extract-metadata.js';
 import { isMimeTypeAllowed } from './files/lib/is-mime-type-allowed.js';
 import { sanitizeFilepath } from './files/lib/sanitize-filepath.js';
@@ -41,6 +52,14 @@ import { ItemsService } from './items.js';
 
 const env = useEnv();
 const logger = useLogger();
+
+export type UploadOneOptions = MutationOptions & {
+	/**
+	 * Callback that receives the deduplication outcome of the upload, allowing callers
+	 * (e.g. the API controller) to observe whether the physical file was reused or stored
+	 */
+	onDedupeResult?: (result: DedupeResult) => void;
+};
 
 export class FilesService extends ItemsService<File> {
 	constructor(options: AbstractServiceOptions) {
@@ -54,9 +73,14 @@ export class FilesService extends ItemsService<File> {
 		stream: BusboyFileStream | Readable,
 		data: Partial<File>,
 		primaryKey?: PrimaryKey,
-		opts?: MutationOptions,
+		opts?: UploadOneOptions,
 	): Promise<PrimaryKey> {
 		const storage = await getStorage();
+
+		const dedupeEnabled = isDedupeEnabled();
+		const dedupeAlgorithm = dedupeEnabled ? getDedupeAlgorithm() : null;
+
+		const dedupeResult: DedupeResult = { ...BYPASSED_DEDUPE_RESULT };
 
 		let existingFile: Record<string, any> | null = null;
 
@@ -117,19 +141,31 @@ export class FilesService extends ItemsService<File> {
 			payload.type = 'application/octet-stream';
 		}
 
+		// An explicitly requested filename_disk on a new upload is a deliberate naming choice,
+		// so such uploads keep their own physical object instead of reusing an existing one
+		const allowDedupeReuse = dedupeEnabled && (isReplacement || !data.filename_disk);
+
+		// Whether the temp file (used for replacements) was already consumed by the dedupe logic
+		let tempFileConsumed = false;
+
 		// Used to clean up if something goes wrong
 		const cleanUp = async () => {
 			try {
 				if (isReplacement === true) {
 					// If this is a replacement that failed, we need to delete the temp file
-					await disk.delete(tempFilenameDisk);
+					if (tempFileConsumed === false) {
+						await disk.delete(tempFilenameDisk);
+					}
 				} else {
 					// If this is a new file that failed
 					// delete the DB record
 					await super.deleteMany([primaryKey!]);
 
-					// delete the final file
-					await disk.delete(payload.filename_disk!);
+					// Delete the final file, unless the record was pointed at a physical object
+					// that's shared with (and still used by) another file record
+					if (dedupeResult.status !== 'reused') {
+						await disk.delete(payload.filename_disk!);
+					}
 				}
 			} catch (err: any) {
 				if (isReplacement === true) {
@@ -142,13 +178,22 @@ export class FilesService extends ItemsService<File> {
 			}
 		};
 
+		// Hash the upload while it streams to storage, keeping memory usage flat for large files
+		let checksumStream: ChecksumStream | null = null;
+		let writeContent: BusboyFileStream | Readable = stream;
+
+		if (dedupeEnabled && dedupeAlgorithm) {
+			checksumStream = createChecksumStream(dedupeAlgorithm);
+			writeContent = stream.compose(checksumStream);
+		}
+
 		try {
 			// If this is a replacement, we'll write the file to a temp location first to ensure we don't overwrite the existing file if something goes wrong
 			if (isReplacement === true) {
-				await disk.write(tempFilenameDisk, stream, payload.type);
+				await disk.write(tempFilenameDisk, writeContent, payload.type);
 			} else {
 				// If this is a new file upload, we'll write the file to the final location
-				await disk.write(payload.filename_disk, stream, payload.type);
+				await disk.write(payload.filename_disk, writeContent, payload.type);
 			}
 
 			// Check if the file was truncated (if the stream ended early) and throw limit error if it was
@@ -170,18 +215,117 @@ export class FilesService extends ItemsService<File> {
 			}
 		}
 
+		if (checksumStream && dedupeAlgorithm) {
+			try {
+				const checksum = checksumStream.digest();
+
+				if (checksum) {
+					payload.checksum = checksum;
+					dedupeResult.algorithm = dedupeAlgorithm;
+					dedupeResult.checksum = checksum;
+
+					if (allowDedupeReuse) {
+						const writtenFilepath = isReplacement ? tempFilenameDisk : payload.filename_disk!;
+						const { size } = await disk.stat(writtenFilepath);
+
+						// Matching on checksum and filesize within the same storage location guards
+						// against digest collisions before a physical object is reused
+						const candidate = await findDedupeCandidate(this.knex, {
+							storage: payload.storage,
+							checksum,
+							filesize: size,
+							excludeIds: [primaryKey!],
+						});
+
+						// The candidate's object has to still exist in storage; a stale database
+						// row is not a valid reuse target
+						if (candidate && (await disk.exists(candidate.filename_disk))) {
+							// Drop the copy that was just written and point the record at the shared object
+							await disk.delete(writtenFilepath);
+
+							if (isReplacement) tempFileConsumed = true;
+
+							payload.filename_disk = candidate.filename_disk;
+							dedupeResult.status = 'reused';
+							dedupeResult.reusedFrom = candidate.id;
+						} else {
+							if (candidate) {
+								logger.info(
+									`Physical file ${candidate.filename_disk} for dedupe candidate ${candidate.id} no longer exists, storing upload as a new file`,
+								);
+							}
+
+							dedupeResult.status = 'stored';
+						}
+					} else {
+						dedupeResult.status = 'stored';
+					}
+				}
+			} catch (err: any) {
+				// Deduplication must never break an upload; fall back to keeping the newly stored file
+				logger.warn(`Couldn't deduplicate the uploaded file, storing it as a new file`);
+				logger.warn(err);
+				dedupeResult.status = 'failed';
+			}
+		}
+
+		// A replacement without a freshly computed checksum (dedupe disabled or failed)
+		// invalidates the checksum the record carried before; keeping it would let future
+		// dedupe runs match against content the file no longer holds
+		if (isReplacement === true && dedupeResult.checksum === null) {
+			payload.checksum = null;
+		}
+
 		// If the file is a replacement, we need to update the DB record with the new payload, delete the old files, and upgrade the temp file
 		if (isReplacement === true) {
 			try {
-				await this.updateOne(primaryKey, payload, { emitEvents: false });
+				if (dedupeResult.status === 'reused') {
+					// The temp file was already discarded above and the record now points at the
+					// shared object. The shared filename_disk intentionally belongs to another
+					// record as well, which FilesService.updateMany would reject as non-unique,
+					// so this update goes through the sudo service.
+					const sudoFilesItemsService = new ItemsService('directus_files', {
+						knex: this.knex,
+						schema: this.schema,
+					});
 
-				// delete the previously saved file and thumbnails to ensure they're generated fresh
-				for await (const filepath of disk.list(String(primaryKey))) {
-					await disk.delete(filepath);
+					await sudoFilesItemsService.updateOne(primaryKey, payload, { emitEvents: false });
+
+					// Remove the replaced physical object once no record references it anymore
+					await this.deleteFileIfUnreferenced(payload.storage, existingFile!['filename_disk']);
+				} else {
+					const oldFilenameDisk = existingFile!['filename_disk'] as string;
+
+					// The previous physical object may be shared with other records when earlier
+					// uploads were deduplicated. In that case it must stay untouched, and the new
+					// content is stored under a fresh name instead of overwriting the shared object.
+					const oldFileIsShared = await this.isFileShared(payload.storage, oldFilenameDisk, primaryKey);
+
+					if (oldFileIsShared) {
+						payload.filename_disk = await getAvailableFilenameDisk(this.knex, {
+							base: String(primaryKey),
+							extension: fileExtension,
+							excludeIds: [primaryKey],
+						});
+
+						await this.updateOne(primaryKey, payload, { emitEvents: false });
+
+						// Upgrade the temp file to the fresh filename
+						await disk.move(tempFilenameDisk, payload.filename_disk);
+					} else {
+						await this.updateOne(primaryKey, payload, { emitEvents: false });
+
+						// delete the previously saved file and thumbnails to ensure they're generated fresh
+						for await (const filepath of disk.list(String(primaryKey))) {
+							await disk.delete(filepath);
+						}
+
+						// Upgrade the temp file to the final filename
+						await disk.move(tempFilenameDisk, payload.filename_disk);
+					}
+
+					tempFileConsumed = true;
 				}
-
-				// Upgrade the temp file to the final filename
-				await disk.move(tempFilenameDisk, payload.filename_disk);
 			} catch (err: any) {
 				await cleanUp();
 				throw err;
@@ -204,6 +348,8 @@ export class FilesService extends ItemsService<File> {
 
 		await sudoFilesItemsService.updateOne(primaryKey, { ...payload, ...metadata }, { emitEvents: false });
 
+		opts?.onDedupeResult?.(dedupeResult);
+
 		if (opts?.emitEvents !== false) {
 			emitter.emitAction(
 				'files.upload',
@@ -211,6 +357,7 @@ export class FilesService extends ItemsService<File> {
 					payload,
 					key: primaryKey,
 					collection: this.collection,
+					dedupe: dedupeResult,
 				},
 				{
 					database: this.knex,
@@ -221,6 +368,43 @@ export class FilesService extends ItemsService<File> {
 		}
 
 		return primaryKey;
+	}
+
+	/**
+	 * Whether a physical object is referenced by any file record other than the given one.
+	 * Shared objects exist when uploads were deduplicated; they must never be overwritten
+	 * or deleted while another record still points at them.
+	 */
+	private async isFileShared(storage: string, filenameDisk: string, excludeId: PrimaryKey): Promise<boolean> {
+		const references = await countFileReferences(this.knex, {
+			storage,
+			filename_disk: filenameDisk,
+			excludeIds: [excludeId],
+		});
+
+		return references > 0;
+	}
+
+	/**
+	 * Delete a physical object and its generated assets from storage, but only when no
+	 * file record references it anymore. Shared objects are left untouched.
+	 */
+	private async deleteFileIfUnreferenced(storageLocation: string, filenameDisk: string): Promise<void> {
+		const references = await countFileReferences(this.knex, {
+			storage: storageLocation,
+			filename_disk: filenameDisk,
+		});
+
+		if (references > 0) return;
+
+		const storage = await getStorage();
+		const disk = storage.location(storageLocation);
+		const filePrefix = path.parse(filenameDisk).name;
+
+		// Delete file + thumbnails
+		for await (const filepath of disk.list(filePrefix)) {
+			await disk.delete(filepath);
+		}
 	}
 
 	/**
@@ -369,6 +553,19 @@ export class FilesService extends ItemsService<File> {
 			}
 
 			for (const key of keys) {
+				const file = updatedFiles.get(key);
+
+				// The physical object may be shared with other records when earlier
+				// uploads were deduplicated. A shared object is copied instead of moved
+				// and its generated assets are left in place for the other records.
+				// Determined up front: querying the pool from inside the transaction
+				// below would deadlock on SQLite.
+				let fileIsShared = false;
+
+				if (file?.filename_disk && sanitizeFilepath(file.filename_disk) !== data.filename_disk) {
+					fileIsShared = await this.isFileShared(file['storage'], sanitizeFilepath(file.filename_disk), key);
+				}
+
 				// Transaction per file to ensure we only rollback changes related to that file on error
 				await transaction(this.knex, async (trx) => {
 					const filesItemService = new ItemsService(this.collection, {
@@ -382,7 +579,6 @@ export class FilesService extends ItemsService<File> {
 					// if filename is present and was updated rename files it was changed
 					if (data.filename_disk) {
 						const storage = await getStorage();
-						const file = updatedFiles.get(key);
 
 						if (!file || !file.filename_disk) return;
 
@@ -421,12 +617,20 @@ export class FilesService extends ItemsService<File> {
 							 */
 							if (filePath === existingFilePath) {
 								if (!remoteFileExists) {
-									await disk.move(filePath, updatedFilePath);
+									if (fileIsShared) {
+										await disk.copy(filePath, updatedFilePath);
+									} else {
+										await disk.move(filePath, updatedFilePath);
+									}
+
 									continue;
 								} else if (toBoolean(env['FILES_DELETE_ORIGINAL_ON_MOVE']) === false) {
 									continue;
 								}
 							}
+
+							// generated assets of a shared object stay in place for the other records
+							if (fileIsShared) continue;
 
 							// always delete generated assets
 							await disk.delete(filePath);
@@ -454,8 +658,6 @@ export class FilesService extends ItemsService<File> {
 	 * Delete multiple files
 	 */
 	override async deleteMany(keys: PrimaryKey[]): Promise<PrimaryKey[]> {
-		const storage = await getStorage();
-
 		const sudoFilesItemsService = new FilesService({
 			knex: this.knex,
 			schema: this.schema,
@@ -466,13 +668,9 @@ export class FilesService extends ItemsService<File> {
 		await super.deleteMany(keys);
 
 		for (const file of files) {
-			const disk = storage.location(file['storage']);
-			const filePrefix = path.parse(file['filename_disk']).name;
-
-			// Delete file + thumbnails
-			for await (const filepath of disk.list(filePrefix)) {
-				await disk.delete(filepath);
-			}
+			// Physical objects may be shared between records when uploads were deduplicated;
+			// they're only removed once no remaining record references them
+			await this.deleteFileIfUnreferenced(file['storage'], file['filename_disk']);
 		}
 
 		return keys;

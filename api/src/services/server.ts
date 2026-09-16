@@ -27,6 +27,7 @@ import { getAllowedLogLevels } from '../utils/get-allowed-log-levels.js';
 import { getMilliseconds } from '../utils/get-milliseconds.js';
 import { isUnauthenticated } from '../utils/is-unauthenticated.js';
 import { useStore } from '../utils/store.js';
+import { getDedupeAlgorithm, isDedupeEnabled } from './files/lib/dedupe.js';
 import { SettingsService } from './settings.js';
 
 const env = useEnv();
@@ -131,6 +132,10 @@ export class ServerService {
 
 			info['files'] = {
 				mimeTypeAllowList: toArray(env['FILES_MIME_TYPE_ALLOW_LIST']),
+				dedupe: {
+					enabled: isDedupeEnabled(),
+					algorithm: getDedupeAlgorithm(),
+				},
 			};
 
 			if (env['RATE_LIMITER_ENABLED']) {

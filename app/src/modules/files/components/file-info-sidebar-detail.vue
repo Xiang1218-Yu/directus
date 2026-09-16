@@ -218,6 +218,11 @@ async function copyFileId() {
 				<dd>{{ size }}</dd>
 			</div>
 
+			<div v-if="file.checksum">
+				<dt>{{ $t('checksum') }}</dt>
+				<dd class="checksum">{{ file.checksum }}</dd>
+			</div>
+
 			<div v-if="file.charset">
 				<dt>{{ $t('charset') }}</dt>
 				<dd>{{ file.charset }}</dd>
@@ -339,5 +344,11 @@ button {
 		--v-icon-color: var(--theme--foreground-subdued);
 		--v-icon-color-hover: var(--theme--foreground);
 	}
+}
+
+.checksum {
+	word-break: break-all;
+	font-family: var(--theme--fonts--monospace--font-family, monospace);
+	font-size: 0.85em;
 }
 </style>

@@ -5,13 +5,14 @@ import formatTitle from '@directus/format-title';
 import type { BusboyFileStream, PrimaryKey } from '@directus/types';
 import Busboy from 'busboy';
 import bytes from 'bytes';
-import type { RequestHandler } from 'express';
+import type { RequestHandler, Response } from 'express';
 import express from 'express';
 import Joi from 'joi';
 import checkIsLocked from '../middleware/is-locked.js';
 import { respond } from '../middleware/respond.js';
 import useCollection from '../middleware/use-collection.js';
 import { validateBatch } from '../middleware/validate-batch.js';
+import type { DedupeResult } from '../services/files/lib/dedupe.js';
 import { isMimeTypeAllowed } from '../services/files/lib/is-mime-type-allowed.js';
 import { FilesService } from '../services/files.js';
 import { MetaService } from '../services/meta.js';
@@ -23,6 +24,24 @@ const env = useEnv();
 
 router.use(useCollection('directus_files'));
 router.use(checkIsLocked('files'));
+
+/**
+ * Expose the deduplication outcome of a single-file upload as response headers,
+ * so API clients (and Studio) can observe whether the physical file was reused
+ */
+function respondWithDedupeHeaders(res: Response) {
+	const dedupeResults = res.locals['dedupeResults'] as DedupeResult[] | undefined;
+
+	if (dedupeResults?.length === 1) {
+		const [result] = dedupeResults;
+
+		res.set('Directus-Dedupe-Status', result!.status);
+
+		if (result!.checksum) {
+			res.set('Directus-File-Checksum', result!.checksum);
+		}
+	}
+}
 
 export const multipartHandler: RequestHandler = (req, res, next) => {
 	if (req.is('multipart/form-data') === false) return next();
@@ -47,6 +66,7 @@ export const multipartHandler: RequestHandler = (req, res, next) => {
 	});
 
 	const savedFiles: PrimaryKey[] = [];
+	const dedupeResults: DedupeResult[] = [];
 	const service = new FilesService({ accountability: req.accountability, schema: req.schema });
 
 	const existingPrimaryKey = req.params['pk'] || undefined;
@@ -98,7 +118,12 @@ export const multipartHandler: RequestHandler = (req, res, next) => {
 		payload = {};
 
 		try {
-			const primaryKey = await service.uploadOne(fileStream, payloadWithRequiredFields, existingPrimaryKey);
+			const primaryKey = await service.uploadOne(fileStream, payloadWithRequiredFields, existingPrimaryKey, {
+				onDedupeResult: (result) => {
+					dedupeResults.push(result);
+				},
+			});
+
 			savedFiles.push(primaryKey);
 			tryDone();
 		} catch (error: any) {
@@ -125,6 +150,7 @@ export const multipartHandler: RequestHandler = (req, res, next) => {
 			}
 
 			res.locals['savedFiles'] = savedFiles;
+			res.locals['dedupeResults'] = dedupeResults;
 			return next();
 		}
 	}
@@ -143,6 +169,7 @@ router.post(
 
 		if (req.is('multipart/form-data')) {
 			keys = res.locals['savedFiles'];
+			respondWithDedupeHeaders(res);
 		} else {
 			keys = await service.createOne(req.body);
 		}
@@ -302,6 +329,8 @@ router.patch(
 			accountability: req.accountability,
 			schema: req.schema,
 		});
+
+		respondWithDedupeHeaders(res);
 
 		await service.updateOne(req.params['pk']!, req.body);
 

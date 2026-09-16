@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { PassThrough, Readable } from 'node:stream';
 import { useEnv } from '@directus/env';
 import { ForbiddenError, InternalServerError, InvalidPayloadError, ServiceUnavailableError } from '@directus/errors';
@@ -326,6 +327,8 @@ describe('Service / Files', () => {
 					)
 					.response({ storage: 's3', filename_disk: 'existing.jpg' });
 
+				tracker.on.select(/count\(\*\)/).response([{ count: 0 }]);
+
 				await service.uploadOne(
 					new PassThrough(),
 					{
@@ -352,6 +355,8 @@ describe('Service / Files', () => {
 						'select "folder", "filename_download", "filename_disk", "title", "description", "metadata", "storage" from "directus_files" where "id" = ?',
 					)
 					.response({ storage: 's3', filename_disk: 'existing.jpg' });
+
+				tracker.on.select(/count\(\*\)/).response([{ count: 0 }]);
 
 				await service.uploadOne(
 					new PassThrough(),
@@ -395,6 +400,416 @@ describe('Service / Files', () => {
 		});
 	});
 
+	describe('uploadOne - deduplication', () => {
+		let service: FilesService;
+		let mockDriver: Driver;
+		let mockStorage: StorageManager;
+
+		let sample: {
+			id: string;
+			filesize: number;
+		};
+
+		const fileContent = 'test content';
+		const expectedChecksum = createHash('sha256').update(fileContent).digest('hex');
+
+		beforeEach(() => {
+			mockEnvOverrides['FILES_DEDUPE_ENABLED'] = 'true';
+
+			service = new FilesService({
+				knex: db,
+				schema: { collections: {}, relations: [] },
+			});
+
+			sample = {
+				id: 'test-file-id-123',
+				filesize: 500,
+			};
+
+			mockDriver = createMockDriver();
+			mockStorage = createMockStorage(mockDriver);
+			vi.mocked(getStorage).mockResolvedValue(mockStorage);
+
+			// Consume the incoming stream so the checksum stream flushes and produces a digest
+			vi.mocked(mockDriver.write).mockImplementation(async (_filepath, content) => {
+				for await (const _ of content) {
+					// discard
+				}
+			});
+
+			tracker.on.select('select "storage_default_folder" from "directus_settings"').response([]);
+
+			vi.spyOn(ItemsService.prototype, 'createOne').mockResolvedValue(sample.id);
+			vi.spyOn(ItemsService.prototype, 'updateOne').mockResolvedValue(sample.id);
+		});
+
+		afterEach(() => {
+			delete mockEnvOverrides['FILES_DEDUPE_ENABLED'];
+			delete mockEnvOverrides['FILES_DEDUPE_ALGORITHM'];
+		});
+
+		test('stores the checksum and keeps its own file when no duplicate exists', async () => {
+			tracker.on.select(/"checksum"/).response([]);
+
+			const onDedupeResult = vi.fn();
+
+			await service.uploadOne(
+				Readable.from(Buffer.from(fileContent)),
+				{
+					storage: 'local',
+					filename_download: 'test.txt',
+					type: 'text/plain',
+				} as any,
+				undefined,
+				{ onDedupeResult },
+			);
+
+			expect(ItemsService.prototype.updateOne).toHaveBeenCalledWith(
+				sample.id,
+				expect.objectContaining({
+					checksum: expectedChecksum,
+					filename_disk: `${sample.id}.txt`,
+				}),
+				{ emitEvents: false },
+			);
+
+			// the newly written file is kept
+			expect(mockDriver.delete).not.toHaveBeenCalled();
+
+			expect(onDedupeResult).toHaveBeenCalledWith({
+				status: 'stored',
+				algorithm: 'sha256',
+				checksum: expectedChecksum,
+				reusedFrom: null,
+			});
+		});
+
+		test('reuses the existing physical file when the content already exists', async () => {
+			tracker.on
+				.select(/"checksum"/)
+				.response([{ id: 'other-file-id', filename_disk: 'other-file.txt', filesize: fileContent.length }]);
+
+			vi.mocked(mockDriver.exists).mockResolvedValue(true);
+
+			const onDedupeResult = vi.fn();
+
+			await service.uploadOne(
+				Readable.from(Buffer.from(fileContent)),
+				{
+					storage: 'local',
+					filename_download: 'test.txt',
+					type: 'text/plain',
+				} as any,
+				undefined,
+				{ onDedupeResult },
+			);
+
+			// the duplicate copy that was just written is discarded again
+			expect(mockDriver.delete).toHaveBeenCalledWith(`${sample.id}.txt`);
+
+			// the record points at the existing physical file instead
+			expect(ItemsService.prototype.updateOne).toHaveBeenCalledWith(
+				sample.id,
+				expect.objectContaining({
+					checksum: expectedChecksum,
+					filename_disk: 'other-file.txt',
+				}),
+				{ emitEvents: false },
+			);
+
+			expect(onDedupeResult).toHaveBeenCalledWith({
+				status: 'reused',
+				algorithm: 'sha256',
+				checksum: expectedChecksum,
+				reusedFrom: 'other-file-id',
+			});
+		});
+
+		test('stores as new when the candidate physical file no longer exists', async () => {
+			tracker.on
+				.select(/"checksum"/)
+				.response([{ id: 'other-file-id', filename_disk: 'missing.txt', filesize: fileContent.length }]);
+
+			vi.mocked(mockDriver.exists).mockResolvedValue(false);
+
+			const onDedupeResult = vi.fn();
+
+			await service.uploadOne(
+				Readable.from(Buffer.from(fileContent)),
+				{
+					storage: 'local',
+					filename_download: 'test.txt',
+					type: 'text/plain',
+				} as any,
+				undefined,
+				{ onDedupeResult },
+			);
+
+			expect(mockDriver.delete).not.toHaveBeenCalled();
+
+			expect(ItemsService.prototype.updateOne).toHaveBeenCalledWith(
+				sample.id,
+				expect.objectContaining({
+					filename_disk: `${sample.id}.txt`,
+				}),
+				{ emitEvents: false },
+			);
+
+			expect(onDedupeResult).toHaveBeenCalledWith(expect.objectContaining({ status: 'stored' }));
+		});
+
+		test('skips reuse when a filename_disk is explicitly provided', async () => {
+			tracker.on.select('select "filename_disk" from "directus_files" where "filename_disk" = ?').response([]);
+
+			const onDedupeResult = vi.fn();
+
+			await service.uploadOne(
+				Readable.from(Buffer.from(fileContent)),
+				{
+					storage: 'local',
+					filename_download: 'test.txt',
+					filename_disk: 'custom-name.txt',
+					type: 'text/plain',
+				} as any,
+				undefined,
+				{ onDedupeResult },
+			);
+
+			// the checksum is stored, but the record keeps its explicitly requested filename
+			expect(ItemsService.prototype.updateOne).toHaveBeenCalledWith(
+				sample.id,
+				expect.objectContaining({
+					checksum: expectedChecksum,
+					filename_disk: 'custom-name.txt',
+				}),
+				{ emitEvents: false },
+			);
+
+			expect(onDedupeResult).toHaveBeenCalledWith(expect.objectContaining({ status: 'stored' }));
+		});
+
+		test('falls back to storing the file when the dedupe lookup fails', async () => {
+			tracker.on.select(/"checksum"/).simulateError(new Error('database unavailable'));
+
+			const onDedupeResult = vi.fn();
+
+			await service.uploadOne(
+				Readable.from(Buffer.from(fileContent)),
+				{
+					storage: 'local',
+					filename_download: 'test.txt',
+					type: 'text/plain',
+				} as any,
+				undefined,
+				{ onDedupeResult },
+			);
+
+			expect(ItemsService.prototype.updateOne).toHaveBeenCalledWith(
+				sample.id,
+				expect.objectContaining({
+					filename_disk: `${sample.id}.txt`,
+				}),
+				{ emitEvents: false },
+			);
+
+			expect(onDedupeResult).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed' }));
+		});
+
+		test('does not hash the upload when dedupe is disabled', async () => {
+			delete mockEnvOverrides['FILES_DEDUPE_ENABLED'];
+
+			const stream = Readable.from(Buffer.from(fileContent));
+			const onDedupeResult = vi.fn();
+
+			await service.uploadOne(
+				stream,
+				{
+					storage: 'local',
+					filename_download: 'test.txt',
+					type: 'text/plain',
+				} as any,
+				undefined,
+				{ onDedupeResult },
+			);
+
+			// the original stream is passed to the storage driver untouched
+			expect(mockDriver.write).toHaveBeenCalledWith(expect.any(String), stream, expect.any(String));
+
+			const updatePayload = vi.mocked(ItemsService.prototype.updateOne).mock.calls[0]![1] as Record<string, unknown>;
+
+			expect(updatePayload).not.toHaveProperty('checksum');
+
+			expect(onDedupeResult).toHaveBeenCalledWith({
+				status: 'bypassed',
+				algorithm: null,
+				checksum: null,
+				reusedFrom: null,
+			});
+		});
+
+		test('uses the configured hash algorithm', async () => {
+			mockEnvOverrides['FILES_DEDUPE_ALGORITHM'] = 'sha512';
+
+			tracker.on.select(/"checksum"/).response([]);
+
+			const onDedupeResult = vi.fn();
+
+			await service.uploadOne(
+				Readable.from(Buffer.from(fileContent)),
+				{
+					storage: 'local',
+					filename_download: 'test.txt',
+					type: 'text/plain',
+				} as any,
+				undefined,
+				{ onDedupeResult },
+			);
+
+			expect(onDedupeResult).toHaveBeenCalledWith(
+				expect.objectContaining({
+					algorithm: 'sha512',
+					checksum: createHash('sha512').update(fileContent).digest('hex'),
+				}),
+			);
+		});
+
+		describe('replacements', () => {
+			const existingFileRow = {
+				storage: 'local',
+				filename_disk: 'shared.txt',
+				filename_download: 'old.txt',
+			};
+
+			beforeEach(() => {
+				tracker.on
+					.select(
+						'select "folder", "filename_download", "filename_disk", "title", "description", "metadata", "storage" from "directus_files" where "id" = ?',
+					)
+					.response(existingFileRow);
+			});
+
+			test('stores the new content under a fresh name when the previous file is shared', async () => {
+				tracker.on.select(/"checksum"/).response([]);
+				tracker.on.select(/count\(\*\)/).response([{ count: 1 }]);
+				tracker.on.select(/"filename_disk" from "directus_files"/).response([]);
+
+				await service.uploadOne(
+					Readable.from(Buffer.from(fileContent)),
+					{
+						storage: 'local',
+						filename_download: 'test.txt',
+						type: 'text/plain',
+					} as any,
+					sample.id,
+				);
+
+				// the shared physical file must not be deleted or overwritten
+				expect(mockDriver.delete).not.toHaveBeenCalledWith('shared.txt');
+				expect(mockDriver.move).toHaveBeenCalledWith(`temp_${sample.id}.txt`, `${sample.id}.txt`);
+
+				expect(ItemsService.prototype.updateOne).toHaveBeenCalledWith(
+					sample.id,
+					expect.objectContaining({
+						filename_disk: `${sample.id}.txt`,
+						checksum: expectedChecksum,
+					}),
+					{ emitEvents: false },
+				);
+			});
+
+			test('moves the temp file over the old file when it is not shared', async () => {
+				tracker.on.select(/"checksum"/).response([]);
+				tracker.on.select(/count\(\*\)/).response([{ count: 0 }]);
+
+				vi.mocked(mockDriver.list).mockImplementation(async function* () {
+					yield 'shared.txt';
+				});
+
+				await service.uploadOne(
+					Readable.from(Buffer.from(fileContent)),
+					{
+						storage: 'local',
+						filename_download: 'test.txt',
+						type: 'text/plain',
+					} as any,
+					sample.id,
+				);
+
+				expect(mockDriver.delete).toHaveBeenCalledWith('shared.txt');
+				expect(mockDriver.move).toHaveBeenCalledWith(`temp_${sample.id}.txt`, 'shared.txt');
+			});
+
+			test('clears the stale checksum when replaced with dedupe disabled', async () => {
+				delete mockEnvOverrides['FILES_DEDUPE_ENABLED'];
+
+				tracker.on.select(/count\(\*\)/).response([{ count: 0 }]);
+
+				await service.uploadOne(
+					Readable.from(Buffer.from(fileContent)),
+					{
+						storage: 'local',
+						filename_download: 'test.txt',
+						type: 'text/plain',
+					} as any,
+					sample.id,
+				);
+
+				// the checksum from a previous dedupe-enabled upload is invalidated
+				expect(ItemsService.prototype.updateOne).toHaveBeenCalledWith(
+					sample.id,
+					expect.objectContaining({ checksum: null }),
+					{ emitEvents: false },
+				);
+			});
+
+			test('reuses an existing identical object and cleans up the replaced file', async () => {
+				tracker.on
+					.select(/"checksum"/)
+					.response([{ id: 'other-file-id', filename_disk: 'other-file.txt', filesize: fileContent.length }]);
+
+				vi.mocked(mockDriver.exists).mockResolvedValue(true);
+				tracker.on.select(/count\(\*\)/).response([{ count: 0 }]);
+
+				vi.mocked(mockDriver.list).mockImplementation(async function* () {
+					yield 'shared.txt';
+				});
+
+				const onDedupeResult = vi.fn();
+
+				await service.uploadOne(
+					Readable.from(Buffer.from(fileContent)),
+					{
+						storage: 'local',
+						filename_download: 'test.txt',
+						type: 'text/plain',
+					} as any,
+					sample.id,
+					{ onDedupeResult },
+				);
+
+				// the temp file is discarded, never moved over the shared object
+				expect(mockDriver.delete).toHaveBeenCalledWith(`temp_${sample.id}.txt`);
+				expect(mockDriver.move).not.toHaveBeenCalled();
+
+				// the replaced physical file is removed once nothing references it
+				expect(mockDriver.delete).toHaveBeenCalledWith('shared.txt');
+
+				expect(ItemsService.prototype.updateOne).toHaveBeenCalledWith(
+					sample.id,
+					expect.objectContaining({
+						filename_disk: 'other-file.txt',
+						checksum: expectedChecksum,
+					}),
+					{ emitEvents: false },
+				);
+
+				expect(onDedupeResult).toHaveBeenCalledWith(
+					expect.objectContaining({ status: 'reused', reusedFrom: 'other-file-id' }),
+				);
+			});
+		});
+	});
+
 	describe('updateMany', () => {
 		let service: FilesService;
 		let mockDriver: Driver;
@@ -409,6 +824,9 @@ describe('Service / Files', () => {
 			mockDriver = createMockDriver();
 			mockStorage = createMockStorage(mockDriver);
 			vi.mocked(getStorage).mockResolvedValue(mockStorage);
+
+			// Physical files are not shared with other records unless a test says otherwise
+			tracker.on.select(/count\(\*\)/).response([{ count: 0 }]);
 		});
 
 		test('should throw ForbiddenError deferred when filename_disk is not unique', async () => {
@@ -665,6 +1083,34 @@ describe('Service / Files', () => {
 			expect(mockDriver.delete).not.toHaveBeenCalled();
 		});
 
+		test('should copy instead of move when the physical file is shared with another record', async () => {
+			// Override the default "not shared" count handler from the outer beforeEach
+			tracker.reset();
+
+			tracker.on.select('select "filename_disk" from "directus_files" where "filename_disk" = ?').response([]);
+			tracker.on.select(/count\(\*\)/).response([{ count: 1 }]);
+
+			vi.spyOn(ItemsService.prototype, 'readMany').mockResolvedValue([
+				{ id: 1, storage: 'local', filename_disk: 'shared-file.jpg' },
+			]);
+
+			vi.spyOn(ItemsService.prototype, 'updateMany').mockResolvedValue([1]);
+
+			vi.mocked(mockDriver.list).mockImplementation(async function* () {
+				yield 'shared-file.jpg';
+				yield 'shared-file-thumbnail.jpg';
+			});
+
+			await service.updateMany([1], {
+				filename_disk: 'renamed-file.jpg',
+			});
+
+			// the shared object is copied, never moved or deleted
+			expect(mockDriver.copy).toHaveBeenCalledWith('shared-file.jpg', 'renamed-file.jpg');
+			expect(mockDriver.move).not.toHaveBeenCalled();
+			expect(mockDriver.delete).not.toHaveBeenCalled();
+		});
+
 		test('should skip file operations when file record has no filename_disk', async () => {
 			tracker.on.select('select "filename_disk" from "directus_files" where "filename_disk" = ?').response([]);
 
@@ -712,6 +1158,8 @@ describe('Service / Files', () => {
 				{ id: 1, storage: 'local', filename_disk: 'test-file.jpg' },
 			]);
 
+			tracker.on.select(/count\(\*\)/).response([{ count: 0 }]);
+
 			vi.mocked(mockDriver.list).mockImplementation(async function* () {
 				yield 'test-file.jpg';
 				yield 'test-file-thumbnail-small.jpg';
@@ -732,6 +1180,8 @@ describe('Service / Files', () => {
 				{ id: 2, storage: 'local', filename_disk: 'file2.png' },
 			]);
 
+			tracker.on.select(/count\(\*\)/).response([{ count: 0 }]);
+
 			let callCount = 0;
 
 			vi.mocked(mockDriver.list).mockImplementation(async function* () {
@@ -748,6 +1198,37 @@ describe('Service / Files', () => {
 			expect(ItemsService.prototype.deleteMany).toHaveBeenCalledWith([1, 2]);
 			expect(mockDriver.delete).toHaveBeenCalledWith('file1.jpg');
 			expect(mockDriver.delete).toHaveBeenCalledWith('file2.png');
+		});
+
+		test('should keep the physical file when another record still references it', async () => {
+			vi.spyOn(ItemsService.prototype, 'readMany').mockResolvedValue([
+				{ id: 1, storage: 'local', filename_disk: 'shared.jpg' },
+			]);
+
+			tracker.on.select(/count\(\*\)/).response([{ count: 1 }]);
+
+			await service.deleteMany([1]);
+
+			expect(ItemsService.prototype.deleteMany).toHaveBeenCalledWith([1]);
+			expect(mockDriver.list).not.toHaveBeenCalled();
+			expect(mockDriver.delete).not.toHaveBeenCalled();
+		});
+
+		test('should delete the physical file once no record references it anymore', async () => {
+			vi.spyOn(ItemsService.prototype, 'readMany').mockResolvedValue([
+				{ id: 1, storage: 'local', filename_disk: 'shared.jpg' },
+				{ id: 2, storage: 'local', filename_disk: 'shared.jpg' },
+			]);
+
+			tracker.on.select(/count\(\*\)/).response([{ count: 0 }]);
+
+			vi.mocked(mockDriver.list).mockImplementation(async function* () {
+				yield 'shared.jpg';
+			});
+
+			await service.deleteMany([1, 2]);
+
+			expect(mockDriver.delete).toHaveBeenCalledWith('shared.jpg');
 		});
 	});
 

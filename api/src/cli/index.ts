@@ -7,6 +7,7 @@ import cacheClear from './commands/cache/clear.js';
 import count from './commands/count/index.js';
 import dbInstall from './commands/database/install.js';
 import dbMigrate from './commands/database/migrate.js';
+import filesChecksumsBackfill from './commands/files/checksums.js';
 import init from './commands/init/index.js';
 import rolesCreate from './commands/roles/create.js';
 import { apply } from './commands/schema/apply.js';
@@ -90,6 +91,13 @@ export async function createCli(): Promise<Command> {
 		.action(cacheClear);
 
 	program.command('count <collection>').description('Count the amount of items in a given collection').action(count);
+
+	const filesCommand = program.command('files');
+
+	filesCommand
+		.command('checksums:backfill')
+		.description('Calculate missing checksums for existing files so they can participate in deduplication')
+		.action(filesChecksumsBackfill);
 
 	program
 		.command('bootstrap')
