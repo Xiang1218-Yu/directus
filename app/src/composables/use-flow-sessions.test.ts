@@ -66,6 +66,7 @@ function session(overrides: Partial<FlowSessionRaw>): FlowSessionRaw {
 		attempts: 1,
 		started_operation: null,
 		started_at: new Date().toISOString(),
+		heartbeat: null,
 		completed_at: null,
 		date_created: new Date().toISOString(),
 		user_created: 'user-1',

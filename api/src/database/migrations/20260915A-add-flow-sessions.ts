@@ -12,11 +12,13 @@ export async function up(knex: Knex): Promise<void> {
 		table.integer('attempts').notNullable().defaultTo(1);
 		table.uuid('started_operation'); // operation the current/final attempt resumed from
 		table.timestamp('started_at').notNullable().defaultTo(knex.fn.now());
+		table.timestamp('heartbeat'); // bumped after every step, used to detect orphaned runs
 		table.timestamp('completed_at');
 		table.timestamp('date_created').defaultTo(knex.fn.now());
 		table.uuid('user_created').references('id').inTable('directus_users').onDelete('SET NULL');
 
 		table.index(['flow', 'date_created']);
+		table.index(['status', 'heartbeat']);
 	});
 }
 

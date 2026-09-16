@@ -80,6 +80,7 @@ export interface FlowSessionRaw {
 	attempts: number;
 	started_operation: string | null;
 	started_at: string;
+	heartbeat: string | null;
 	completed_at: string | null;
 	date_created: string;
 	user_created: string | null;

@@ -93,9 +93,11 @@ const sessionActionHandler = (action: 'rerun' | 'cancel') =>
 		});
 
 		if (action === 'rerun') {
+			const operation = req.body?.['operation'];
+
 			await service.rerun(
 				req.params['session']!,
-				req.body?.['operation'] === undefined ? null : String(req.body['operation']),
+				operation === undefined || operation === null ? null : String(operation),
 				'input' in (req.body ?? {}) ? req.body['input'] : undefined,
 			);
 		} else {

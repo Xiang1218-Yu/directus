@@ -21,6 +21,9 @@ fields:
   - field: started_at
     special:
       - cast-timestamp
+  - field: heartbeat
+    special:
+      - cast-timestamp
   - field: completed_at
     special:
       - cast-timestamp

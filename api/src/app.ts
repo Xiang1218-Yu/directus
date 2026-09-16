@@ -147,6 +147,7 @@ export default async function createApp(): Promise<express.Application> {
 
 	await extensionManager.initialize();
 	await FlowSessionsService.reapStaleSessions();
+	FlowSessionsService.scheduleStaleSessionReaping();
 	await flowManager.initialize();
 
 	const app = express();
