@@ -1618,6 +1618,46 @@ mcp_oauth_cimd_disabled_by_env:
 mcp_oauth_clients: 'MCP OAuth Clients'
 manage_registered_clients: 'Manage registered clients'
 no_oauth_clients: 'No OAuth clients have been registered yet.'
+mcp_approvals: 'MCP Tool Approvals'
+mcp_approval_policies: 'MCP Approval Policies'
+mcp_approval_policies_empty: 'No approval policies configured yet.'
+mcp_approval_policy_scope_any_write: 'Any write tool'
+mcp_approval_policy_scope_delete: 'Delete actions only'
+mcp_approval_policy_scope_all_tools: 'All tools (any call)'
+mcp_approval_policy_any_client: 'Any OAuth client'
+mcp_approval_policy_any_role: 'Any role'
+mcp_approval_policy_name_placeholder: 'Require approval for content writes'
+mcp_approval_policy_create: 'Create Policy'
+mcp_approval_policy_edit: 'Edit Policy'
+mcp_approval_refresh: 'Refresh'
+mcp_approval_field_role: 'Role'
+mcp_approval_field_timeout: 'Timeout (minutes)'
+mcp_approvals_empty: 'No tool approvals match this filter.'
+mcp_approval_approve: 'Approve'
+mcp_approval_reject: 'Reject'
+mcp_approval_approve_confirm_title: 'Approve this tool call?'
+mcp_approval_reject_confirm_title: 'Reject this tool call?'
+mcp_approval_confirm_copy: 'The original request will run at most once with the requester’s permissions. This cannot be undone.'
+mcp_approval_status_pending: 'Pending'
+mcp_approval_status_approved: 'Approved'
+mcp_approval_status_rejected: 'Rejected'
+mcp_approval_status_expired: 'Expired'
+mcp_approval_status_cancelled: 'Cancelled'
+mcp_approval_status_executing: 'Executing'
+mcp_approval_status_completed: 'Completed'
+mcp_approval_status_failed: 'Failed'
+mcp_approval_field_id: 'Approval ID'
+mcp_approval_field_collection: 'Collection'
+mcp_approval_field_action: 'Action'
+mcp_approval_field_oauth_client: 'OAuth client'
+mcp_approval_field_requester: 'Requester'
+mcp_approval_field_requested: 'Requested at'
+mcp_approval_field_expires: 'Expires at'
+mcp_approval_field_reviewed_by: 'Reviewed by'
+mcp_approval_field_reviewed_at: 'Reviewed at'
+mcp_approval_field_note: 'Note'
+mcp_approval_field_parameters: 'Parameters (sensitive values masked)'
+mcp_approval_field_result: 'Result'
 revoke_client: 'Revoke Client'
 revoke_client_confirm:
   'Are you sure you want to revoke this client? All associated tokens and sessions will be deleted.'
@@ -1763,6 +1803,8 @@ directus_collection:
   directus_oauth_codes: Authorization codes for OAuth flows
   directus_oauth_consents: User consent grants for OAuth clients
   directus_oauth_tokens: Access and refresh tokens for OAuth clients
+  directus_mcp_approval_policies: Policies requiring human approval of MCP tool calls
+  directus_mcp_approvals: Pending and audited MCP tool call approvals
 fields:
   directus_activity:
     item: Item Primary Key
@@ -2071,6 +2113,18 @@ field_options:
   directus_oauth_clients:
     registration_type_dcr: DCR
     registration_type_cimd: CIMD
+  directus_mcp_approval_policies:
+    tool_write: Any write
+    tool_delete: Deletes only
+  directus_mcp_approvals:
+    status_pending: Pending
+    status_approved: Approved
+    status_rejected: Rejected
+    status_expired: Expired
+    status_cancelled: Cancelled
+    status_executing: Executing
+    status_completed: Completed
+    status_failed: Failed
   directus_collections:
     track_activity_revisions: Track Activity & Revisions
     only_track_activity: Only Track Activity

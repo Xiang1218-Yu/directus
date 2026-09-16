@@ -2,6 +2,8 @@ import { isSystemCollection } from '@directus/system-data';
 
 const ENDPOINT_OVERRIDES: Record<string, string> = {
 	directus_oauth_clients: '/mcp-oauth/clients',
+	directus_mcp_approval_policies: '/mcp-approval-policies',
+	directus_mcp_approvals: '/mcp-approvals',
 };
 
 export function getEndpoint(collection: string): string {

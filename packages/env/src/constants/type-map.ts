@@ -87,6 +87,9 @@ export const TYPE_MAP: Record<string, EnvType> = {
 	MCP_OAUTH_CIMD_ALLOW_HTTP: 'boolean',
 	MCP_OAUTH_CIMD_ALLOWED_DOMAINS: 'array',
 	MCP_OAUTH_CIMD_BLOCKED_TLDS: 'array',
+	MCP_APPROVALS_ENABLED: 'boolean',
+	MCP_APPROVAL_CLEANUP_SCHEDULE: 'string',
+	MCP_APPROVAL_EXECUTION_CLAIM_TTL_MS: 'number',
 
 	EMAIL_SMTP_PASSWORD: 'string',
 

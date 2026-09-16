@@ -1333,7 +1333,10 @@ export class McpOAuthService {
 		const userId = grant['user'] as string;
 		const clientName = client['client_name'] as string;
 
-		// 5. Delete grant + session atomically
+		// 5. Delete grant + session atomically. Pending MCP tool approvals for this grant
+		// are neutralized separately: the approval center re-checks grant existence when an
+		// approval is viewed/executed and the cleanup job cancels orphaned pending rows, so
+		// a revoked token can never result in an executed write.
 		await transaction(this.knex, async (trx) => {
 			await trx('directus_oauth_tokens').where('id', grantId).delete();
 			await trx('directus_sessions').where('token', tokenHash).delete();

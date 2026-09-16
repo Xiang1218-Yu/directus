@@ -262,6 +262,11 @@ export const DEFAULTS: Env = {
 	MCP_OAUTH_CIMD_ALLOWED_DOMAINS: '',
 	MCP_OAUTH_CIMD_BLOCKED_TLDS: 'test,localhost,invalid,example,local,onion',
 
+	// Human approval center for high-risk MCP tool calls
+	MCP_APPROVALS_ENABLED: false,
+	MCP_APPROVAL_CLEANUP_SCHEDULE: '*/15 * * * *',
+	MCP_APPROVAL_EXECUTION_CLAIM_TTL_MS: 120_000,
+
 	AI_ENABLED: true,
 	AI_DEVTOOLS_ENABLED: false,
 	AI_TELEMETRY_ENABLED: false,

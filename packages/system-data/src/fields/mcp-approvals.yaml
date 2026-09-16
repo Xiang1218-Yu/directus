@@ -1,0 +1,129 @@
+table: directus_mcp_approvals
+
+fields:
+  - field: id
+    special:
+      - uuid
+    width: half
+  - field: status
+    width: half
+    display: labels
+    display_options:
+      choices:
+        - text: $t:field_options.directus_mcp_approvals.status_pending
+          value: pending
+          foreground: 'var(--warning)'
+          background: 'var(--warning-25)'
+        - text: $t:field_options.directus_mcp_approvals.status_approved
+          value: approved
+          foreground: 'var(--theme--primary)'
+          background: 'var(--theme--primary-subdued)'
+        - text: $t:field_options.directus_mcp_approvals.status_rejected
+          value: rejected
+          foreground: 'var(--danger)'
+          background: 'var(--danger-25)'
+        - text: $t:field_options.directus_mcp_approvals.status_expired
+          value: expired
+          foreground: 'var(--theme--foreground-subdued)'
+          background: 'var(--theme--background-subdued)'
+        - text: $t:field_options.directus_mcp_approvals.status_cancelled
+          value: cancelled
+          foreground: 'var(--theme--foreground-subdued)'
+          background: 'var(--theme--background-subdued)'
+        - text: $t:field_options.directus_mcp_approvals.status_executing
+          value: executing
+          foreground: 'var(--blue)'
+          background: 'var(--blue-25)'
+        - text: $t:field_options.directus_mcp_approvals.status_completed
+          value: completed
+          foreground: 'var(--success)'
+          background: 'var(--success-25)'
+        - text: $t:field_options.directus_mcp_approvals.status_failed
+          value: failed
+          foreground: 'var(--danger)'
+          background: 'var(--danger-25)'
+  - field: oauth_client
+    special:
+      - m2o
+    width: half
+  - field: user
+    special:
+      - m2o
+    width: half
+  - field: role
+    special:
+      - m2o
+    width: half
+  - field: tool
+    width: half
+  - field: action
+    width: half
+  - field: collection
+    width: half
+  - field: input
+    special:
+      - cast-json
+    hidden: true
+  - field: input_preview
+    special:
+      - cast-json
+    width: full
+    readonly: true
+  - field: policy
+    special:
+      - m2o
+    width: half
+  - field: expires_at
+    special:
+      - cast-timestamp
+    width: half
+  - field: requested_by
+    special:
+      - m2o
+    width: half
+    readonly: true
+  - field: requested_at
+    special:
+      - cast-timestamp
+    width: half
+    readonly: true
+  - field: reviewed_by
+    special:
+      - m2o
+    width: half
+    readonly: true
+  - field: reviewed_at
+    special:
+      - cast-timestamp
+    width: half
+    readonly: true
+  - field: review_note
+    width: full
+    readonly: true
+  - field: execution_lock
+    special:
+      - conceal
+    hidden: true
+  - field: execution_locked_at
+    special:
+      - cast-timestamp
+    hidden: true
+  - field: attempts
+    hidden: true
+  - field: completed_at
+    special:
+      - cast-timestamp
+    width: half
+    readonly: true
+  - field: result
+    special:
+      - cast-json
+    width: full
+    readonly: true
+  - field: error
+    width: full
+    readonly: true
+  - field: request_hash
+    special:
+      - conceal
+    hidden: true

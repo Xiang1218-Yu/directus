@@ -1,0 +1,58 @@
+table: directus_mcp_approval_policies
+
+fields:
+  - field: id
+    special:
+      - uuid
+    width: half
+  - field: name
+    width: full
+  - field: enabled
+    width: half
+  - field: oauth_client
+    special:
+      - m2o
+    width: half
+  - field: role
+    special:
+      - m2o
+    width: half
+  - field: tool
+    width: half
+    display: labels
+    display_options:
+      choices:
+        - text: $t:field_options.directus_mcp_approval_policies.tool_write
+          value: write
+          foreground: 'var(--danger)'
+          background: 'var(--danger-25)'
+        - text: $t:field_options.directus_mcp_approval_policies.tool_delete
+          value: delete
+          foreground: 'var(--danger)'
+          background: 'var(--danger-25)'
+  - field: timeout_minutes
+    width: half
+  - field: created_by
+    special:
+      - m2o
+      - user-created
+    width: half
+    readonly: true
+  - field: updated_by
+    special:
+      - m2o
+      - user-updated
+    width: half
+    readonly: true
+  - field: date_created
+    special:
+      - date-created
+      - cast-timestamp
+    width: half
+    readonly: true
+  - field: date_updated
+    special:
+      - date-updated
+      - cast-timestamp
+    width: half
+    readonly: true

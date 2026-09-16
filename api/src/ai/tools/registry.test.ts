@@ -528,6 +528,72 @@ describe('ToolRegistry', () => {
 			args: { action: 'create' },
 		});
 	});
+
+	test('gateWriteCall short-circuits writes and leaves reads untouched', async () => {
+		const gate = vi
+			.fn()
+			.mockResolvedValue({ ok: false, error: { code: 'GATED', message: '', recoverable: false } });
+
+		const registry = new ToolRegistry([
+			createTool({
+				name: 'items',
+				description: 'Items',
+				validateSchema: z.object({ action: z.enum(['read', 'create']) }),
+				handler: writeHandler,
+				readOnly: (input) => input.action === 'read',
+			}),
+		]);
+
+		const mounted = registry.mount({ schema, gateWriteCall: gate });
+
+		const result = await mounted.execute('items', { action: 'create' });
+		expect(writeHandler).not.toHaveBeenCalled();
+		expect(result).toMatchObject({ ok: false, error: { code: 'GATED' } });
+
+		const readResult = await mounted.execute('items', { action: 'read' });
+		expect(gate).toHaveBeenCalledTimes(1);
+		expect(readResult).toMatchObject({ ok: true });
+	});
+
+	test('executeApproved bypasses the gate but still enforces the delete policy', async () => {
+		const registry = new ToolRegistry([
+			createTool({
+				name: 'items',
+				description: 'Items',
+				validateSchema: z.object({ action: z.enum(['read', 'create', 'delete']) }),
+				handler: writeHandler,
+				readOnly: (input) => input.action === 'read',
+			}),
+			createTool({ name: 'root-tool', description: 'Root', handler: writeHandler, exposure: 'root' }),
+		]);
+
+		const gated = registry.mount({
+			schema,
+			gateWriteCall: vi
+				.fn()
+				.mockResolvedValue({ ok: false, error: { code: 'GATED', message: '', recoverable: false } }),
+		});
+
+		await expect(gated.execute('items', { action: 'create' })).resolves.toMatchObject({
+			ok: false,
+			error: { code: 'GATED' },
+		});
+
+		// Approved replay runs the stored args directly, without consulting the gate.
+		await expect(gated.executeApproved('items', { action: 'create' })).resolves.toMatchObject({ ok: true });
+		expect(writeHandler).toHaveBeenCalledTimes(1);
+
+		const noDeletes = registry.mount({ schema, allowDeletes: false });
+
+		await expect(noDeletes.executeApproved('items', { action: 'delete' })).resolves.toMatchObject({
+			ok: false,
+			error: { code: 'INVALID_PAYLOAD' },
+		});
+
+		// Root/meta tools and unknown tools are not replayable.
+		await expect(gated.executeApproved('root-tool', {})).resolves.toMatchObject({ ok: false });
+		await expect(gated.executeApproved('missing', {})).resolves.toMatchObject({ ok: false });
+	});
 });
 
 function createTool(

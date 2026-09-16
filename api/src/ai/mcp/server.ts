@@ -238,10 +238,44 @@ export class DirectusMCP {
 			});
 		});
 
+		// Approval center integration. The service graph (database/permissions) is imported
+		// lazily inside the async tool callbacks, keeping handleRequest synchronous.
+		const approvalsContext = { schema: req.schema, accountability: req.accountability };
+
+		const getApprovalsService = async () => {
+			const { McpApprovalsService } = await import('../../services/mcp-approvals/index.js');
+			return new McpApprovalsService(approvalsContext);
+		};
+
 		const mountedRegistry = new ToolRegistry(ALL_TOOLS).mount({
 			accountability: req.accountability,
 			allowDeletes: this.allowDeletes,
 			isToolCallApproved: () => true,
+			gateWriteCall: async ({ name, args, isWrite }) => {
+				const approvalsService = await getApprovalsService();
+
+				const gate = await approvalsService.gateCall({
+					accountability: req.accountability!,
+					tool: name,
+					args,
+					isWrite,
+				});
+
+				if (gate.approved) return undefined;
+
+				return {
+					ok: false,
+					error: {
+						code: 'APPROVAL_REQUIRED',
+						message: `"${name}" requires human approval before execution. Poll the approval-status tool with the approval id until it completes.`,
+						recoverable: false,
+						next: {
+							tool: 'execute',
+							input: { name: 'approval-status', input: { approval: gate.approval } },
+						},
+					},
+				};
+			},
 			schema: req.schema,
 			systemPrompt: this.systemPrompt,
 			systemPromptEnabled: this.systemPromptEnabled,

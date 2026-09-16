@@ -10,8 +10,11 @@ import { DirectusTransport } from './transport.js';
 const toolMocks = vi.hoisted(() => ({
 	adminHandler: vi.fn(),
 	deleteHandler: vi.fn(),
+	gatedHandler: vi.fn(),
 	systemHandler: vi.fn(),
 	testHandler: vi.fn(),
+	gateCall: vi.fn().mockResolvedValue({ approved: true }),
+	getForAgent: vi.fn(),
 }));
 
 vi.mock('@directus/env', () => ({
@@ -39,6 +42,13 @@ vi.mock('@directus/env', () => ({
 }));
 
 vi.mock('../../services/items.js');
+
+vi.mock('../../services/mcp-approvals/index.js', () => ({
+	McpApprovalsService: vi.fn().mockImplementation(() => ({
+		gateCall: (...args: unknown[]) => toolMocks.gateCall(...args),
+		getForAgent: (...args: unknown[]) => toolMocks.getForAgent(...args),
+	})),
+}));
 
 vi.mock('../tools/index.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../tools/index.js')>();
@@ -86,6 +96,15 @@ vi.mock('../tools/index.js', async (importOriginal) => {
 				handler: toolMocks.deleteHandler,
 			},
 			{
+				name: 'gated-tool',
+				description: 'A gated write tool',
+				inputSchema: z.strictObject({ action: z.string() }),
+				validateSchema: z.strictObject({ action: z.string() }),
+				admin: false,
+				readOnly: false,
+				handler: toolMocks.gatedHandler,
+			},
+			{
 				name: 'system-prompt',
 				description: 'System prompt',
 				inputSchema: z.strictObject({}),
@@ -129,6 +148,7 @@ describe('mcp server', () => {
 		toolMocks.testHandler.mockResolvedValue({ type: 'text', data: 'test result' });
 		toolMocks.adminHandler.mockResolvedValue({ type: 'text', data: 'admin result' });
 		toolMocks.deleteHandler.mockResolvedValue({ type: 'text', data: 'deleted' });
+		toolMocks.gatedHandler.mockResolvedValue({ type: 'text', data: 'created' });
 		toolMocks.systemHandler.mockResolvedValue({ type: 'text', data: 'system prompt' });
 	});
 
@@ -229,6 +249,7 @@ describe('mcp server', () => {
 			expect(result.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
 				'test-tool',
 				'delete-tool',
+				'gated-tool',
 				'system-prompt',
 				'schema',
 			]);
@@ -566,6 +587,79 @@ describe('mcp server', () => {
 					}),
 				}),
 			);
+		});
+	});
+
+	describe('approval gating', () => {
+		beforeEach(() => {
+			toolMocks.gateCall.mockReset().mockResolvedValue({ approved: true });
+			toolMocks.deleteHandler.mockResolvedValue({ type: 'text', data: 'deleted' });
+
+			directusMCP = new DirectusMCP();
+
+			mockRes = {
+				json: vi.fn(),
+				status: vi.fn().mockReturnThis(),
+				set: vi.fn().mockReturnThis(),
+				send: vi.fn(),
+			} as unknown as Response;
+		});
+
+		test('gated write returns APPROVAL_REQUIRED and never runs the handler', async () => {
+			toolMocks.gateCall.mockResolvedValue({
+				approved: false,
+				approval: '11111111-1111-1111-1111-111111111111',
+				status: 'pending',
+				expiresAt: new Date().toISOString(),
+			});
+
+			const mockReq = {
+				accepts: vi.fn(() => 'application/json'),
+				body: {
+					jsonrpc: '2.0',
+					id: 1,
+					method: 'tools/call',
+					params: { name: 'gated-tool', arguments: { action: 'create' } },
+				},
+				accountability: { user: 'user', admin: false },
+				schema: {},
+			} as unknown as Request;
+
+			directusMCP.handleRequest(mockReq, mockRes as Response);
+			await awaitJsonResponse(directusMCP);
+
+			expect(toolMocks.gateCall).toHaveBeenCalledTimes(1);
+			expect(toolMocks.gatedHandler).not.toHaveBeenCalled();
+
+			expect(mockRes.json).toHaveBeenCalledWith(
+				expect.objectContaining({
+					result: expect.objectContaining({
+						isError: true,
+						content: expect.arrayContaining([
+							expect.objectContaining({ text: expect.stringContaining('APPROVAL_REQUIRED') }),
+						]),
+					}),
+				}),
+			);
+		});
+
+		test('reads are not gated', async () => {
+			const mockReq = {
+				accepts: vi.fn(() => 'application/json'),
+				body: {
+					jsonrpc: '2.0',
+					id: 1,
+					method: 'tools/call',
+					params: { name: 'test-tool', arguments: { test: 'value' } },
+				},
+				accountability: { user: 'user', admin: false },
+				schema: {},
+			} as unknown as Request;
+
+			directusMCP.handleRequest(mockReq, mockRes as Response);
+			await awaitJsonResponse(directusMCP);
+
+			expect(toolMocks.gateCall).not.toHaveBeenCalled();
 		});
 	});
 

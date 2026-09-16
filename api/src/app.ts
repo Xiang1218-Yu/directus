@@ -34,6 +34,8 @@ import graphqlRouter from './controllers/graphql.js';
 import itemsRouter from './controllers/items.js';
 import licenseRouter from './controllers/license.js';
 import mcpRouter from './controllers/mcp/index.js';
+import mcpApprovalsRouter from './controllers/mcp-approvals.js';
+import mcpApprovalPoliciesRouter from './controllers/mcp-approval-policies.js';
 import mcpOAuthClientsRouter from './controllers/mcp/oauth-clients.js';
 import { mcpOAuthProtectedRouter, mcpOAuthPublicRouter } from './controllers/mcp/oauth.js';
 import metricsRouter from './controllers/metrics.js';
@@ -82,6 +84,7 @@ import schema from './middleware/schema.js';
 import licenseSchedule from './schedules/license.js';
 import metricsSchedule from './schedules/metrics.js';
 import scheduleOAuthCleanup from './schedules/oauth-cleanup.js';
+import scheduleMcpApprovalsCleanup from './schedules/mcp-approvals-cleanup.js';
 import projectSchedule from './schedules/project.js';
 import retentionSchedule from './schedules/retention.js';
 import telemetrySchedule from './schedules/telemetry.js';
@@ -398,6 +401,11 @@ export default async function createApp(): Promise<express.Application> {
 		app.use('/mcp-oauth/clients', mcpOAuthClientsRouter);
 	}
 
+	if (toBoolean(env['MCP_APPROVALS_ENABLED']) === true) {
+		app.use('/mcp-approvals', mcpApprovalsRouter);
+		app.use('/mcp-approval-policies', mcpApprovalPoliciesRouter);
+	}
+
 	app.use('/schema', schemaRouter);
 	app.use('/server', serverRouter);
 	app.use('/settings', settingsRouter);
@@ -426,6 +434,8 @@ export default async function createApp(): Promise<express.Application> {
 	if (env['MCP_OAUTH_ENABLED'] === true) {
 		await scheduleOAuthCleanup();
 	}
+
+	await scheduleMcpApprovalsCleanup();
 
 	await emitter.emitInit('app.after', { app });
 

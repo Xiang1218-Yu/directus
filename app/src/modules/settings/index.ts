@@ -35,6 +35,8 @@ import RouterPass from '@/utils/router-passthrough';
 
 const McpOAuthClientsCollection = () => import('./routes/mcp-oauth-clients/collection.vue');
 const McpOAuthClientsItem = () => import('./routes/mcp-oauth-clients/item.vue');
+const McpApprovalsQueue = () => import('./routes/mcp-approvals/queue.vue');
+const McpApprovalPolicies = () => import('./routes/mcp-approvals/policies.vue');
 
 export default defineModule({
 	id: 'settings',
@@ -324,6 +326,16 @@ export default defineModule({
 					props: true,
 				},
 			],
+		},
+		{
+			name: 'settings-mcp-approvals',
+			path: 'mcp-approvals',
+			component: McpApprovalsQueue,
+		},
+		{
+			name: 'settings-mcp-approval-policies',
+			path: 'mcp-approval-policies',
+			component: McpApprovalPolicies,
 		},
 		{
 			name: 'settings-not-found',

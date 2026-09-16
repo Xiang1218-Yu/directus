@@ -1294,6 +1294,26 @@ fields:
             _neq: true
         hidden: true
 
+  - field: mcp_approvals_link
+    interface: presentation-links
+    group: mcp_group
+    width: half
+    special:
+      - alias
+      - no-data
+    options:
+      links:
+        - label: $t:mcp_approvals
+          icon: approval
+          type: normal
+          actionType: url
+          url: /settings/mcp-approvals
+        - label: $t:mcp_approval_policies
+          icon: rule
+          type: normal
+          actionType: url
+          url: /settings/mcp-approval-policies
+
   - field: mcp_system_prompt_divider
     interface: presentation-divider
     options:

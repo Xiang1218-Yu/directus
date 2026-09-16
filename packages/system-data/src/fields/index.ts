@@ -19,6 +19,8 @@ import oauthClientsFields from './oauth-clients.yaml';
 import oauthCodesFields from './oauth-codes.yaml';
 import oauthConsentsFields from './oauth-consents.yaml';
 import oauthTokensFields from './oauth-tokens.yaml';
+import mcpApprovalPoliciesFields from './mcp-approval-policies.yaml';
+import mcpApprovalsFields from './mcp-approvals.yaml';
 import operationFields from './operations.yaml';
 import panelFields from './panels.yaml';
 import permissionFields from './permissions.yaml';
@@ -80,6 +82,8 @@ processFields(oauthClientsFields);
 processFields(oauthCodesFields);
 processFields(oauthConsentsFields);
 processFields(oauthTokensFields);
+processFields(mcpApprovalPoliciesFields);
+processFields(mcpApprovalsFields);
 
 function processFields(systemFields: Record<string, any>) {
 	const {

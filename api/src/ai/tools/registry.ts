@@ -46,6 +46,18 @@ export type ToolRegistryMountContext = {
 	accountability?: Accountability | undefined;
 	allowDeletes?: boolean | undefined;
 	isToolCallApproved?: ((options: { args: Record<string, unknown>; tool: ToolConfig<any> }) => boolean) | undefined;
+	/**
+	 * Gate non read-only tool calls before execution. Returning an approval error result
+	 * short-circuits the call; resolving `undefined` means the call may proceed.
+	 */
+	gateWriteCall?:
+		| ((options: {
+				name: string;
+				args: Record<string, unknown>;
+				tool: ToolConfig<any>;
+				isWrite: boolean;
+		  }) => Promise<RegistryExecuteResult | undefined>)
+		| undefined;
 	schema: SchemaOverview;
 	systemPrompt?: string | null | undefined;
 	systemPromptEnabled?: boolean | undefined;
@@ -101,6 +113,7 @@ export class MountedToolRegistry {
 
 	getRootTools(): RootTool[] {
 		const rootTools: RootTool[] = [searchRootTool, executeRootTool];
+
 		const mountedSchemaTool = this.#getVisibleTool(schemaTool.name);
 
 		if (mountedSchemaTool) {
@@ -181,6 +194,56 @@ export class MountedToolRegistry {
 		return this.#executeTool(tool, input);
 	}
 
+	/**
+	 * Execute a tool by name for a concrete, validated argument set, bypassing gating.
+	 * Used by the approval center to run a previously-approved request exactly once with
+	 * the original requester's accountability. Read-only enforcement and delete policy
+	 * still apply.
+	 */
+	async executeApproved(name: string, args: Record<string, unknown>): Promise<RegistryExecuteResult> {
+		const tool = this.#catalog.get(name);
+
+		if (!tool || tool.exposure === 'root') {
+			return {
+				ok: false,
+				error: {
+					code: 'UNKNOWN_TOOL',
+					message: `"${name}" doesn't exist in the toolset`,
+					recoverable: false,
+				},
+			};
+		}
+
+		try {
+			// The stored args were parsed/validated when the approval was created; parse
+			// once more defensively so defaults/coercion match a live call.
+			const parsedArgs = this.#parseInput(tool, args);
+
+			if (this.#context.allowDeletes === false && parsedArgs['action'] === 'delete') {
+				return {
+					ok: false,
+					error: { code: 'INVALID_PAYLOAD', message: 'Delete actions are disabled', recoverable: false },
+				};
+			}
+
+			const result = await tool.handler({
+				args: parsedArgs,
+				schema: this.#context.schema,
+				accountability: this.#context.accountability,
+			});
+
+			this.#addUrl(tool, parsedArgs, result);
+
+			return {
+				ok: true,
+				...(result && { result }),
+				...(tool.output && result?.type === 'text' ? { structuredContent: { data: result.data } } : {}),
+			};
+		} catch (error) {
+			return { ok: false, error: toRegistryError(error, tool) };
+		}
+	}
+
 	isCallReadOnly(name: string, input: unknown): boolean {
 		const tool = this.#getVisibleTool(name);
 
@@ -203,7 +266,15 @@ export class MountedToolRegistry {
 				throw new InvalidPayloadError({ reason: 'Delete actions are disabled' });
 			}
 
-			if (!this.#isReadOnly(tool, args) && this.#context.isToolCallApproved?.({ tool, args }) !== true) {
+			const isWrite = !this.#isReadOnly(tool, args);
+
+			if (isWrite) {
+				const gated = await this.#context.gateWriteCall?.({ name: tool.name, args, tool, isWrite });
+
+				if (gated) return gated;
+			}
+
+			if (isWrite && this.#context.isToolCallApproved?.({ tool, args }) !== true) {
 				return {
 					ok: false,
 					error: {

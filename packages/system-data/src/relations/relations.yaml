@@ -306,3 +306,36 @@ data:
   - many_collection: directus_sessions
     many_field: oauth_client
     one_collection: directus_oauth_clients
+
+  ### MCP approvals
+  - many_collection: directus_mcp_approval_policies
+    many_field: oauth_client
+    one_collection: directus_oauth_clients
+
+  - many_collection: directus_mcp_approval_policies
+    many_field: role
+    one_collection: directus_roles
+
+  - many_collection: directus_mcp_approvals
+    many_field: oauth_client
+    one_collection: directus_oauth_clients
+
+  - many_collection: directus_mcp_approvals
+    many_field: user
+    one_collection: directus_users
+
+  - many_collection: directus_mcp_approvals
+    many_field: role
+    one_collection: directus_roles
+
+  - many_collection: directus_mcp_approvals
+    many_field: policy
+    one_collection: directus_mcp_approval_policies
+
+  - many_collection: directus_mcp_approvals
+    many_field: requested_by
+    one_collection: directus_users
+
+  - many_collection: directus_mcp_approvals
+    many_field: reviewed_by
+    one_collection: directus_users

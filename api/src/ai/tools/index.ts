@@ -1,3 +1,4 @@
+import { approvalStatus } from './approvals/index.js';
 import { assets } from './assets/index.js';
 import { collections } from './collections/index.js';
 import { fields } from './fields/index.js';
@@ -25,6 +26,7 @@ export const ALL_TOOLS: ToolConfig<any>[] = [
 	collections,
 	fields,
 	relations,
+	approvalStatus,
 ];
 
 export { collections, fields, files, flows, items, operations, relations, schema, system, triggerFlow };

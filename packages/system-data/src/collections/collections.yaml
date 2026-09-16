@@ -137,3 +137,13 @@ data:
   - collection: directus_oauth_tokens
     note: $t:directus_collection.directus_oauth_tokens
     accountability: null
+
+  - collection: directus_mcp_approval_policies
+    note: $t:directus_collection.directus_mcp_approval_policies
+    icon: rule
+    accountability: null
+
+  - collection: directus_mcp_approvals
+    note: $t:directus_collection.directus_mcp_approvals
+    icon: approval
+    accountability: null
