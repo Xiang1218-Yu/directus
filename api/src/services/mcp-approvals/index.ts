@@ -515,6 +515,7 @@ export class McpApprovalsService {
 				row: { ...row, status: 'executing', execution_lock: lockToken },
 				accountability,
 			};
+
 			return { kind: 'claim' as const, claim: claimed };
 		});
 
@@ -528,10 +529,18 @@ export class McpApprovalsService {
 		// guaranteed by the locked "executing" row, so crashes/DB failures never trigger a
 		// second attempt.
 		const { row, accountability } = claimed.claim;
-		await this.#runClaimed(row, accountability, options.execute);
+		const terminalStatus = await this.#runClaimed(row, accountability, options.execute);
 
 		const finalRaw = await this.knex(APPROVALS_TABLE).select('*').where('id', row.id).first();
-		return this.#toReview(parseApprovalRow(finalRaw));
+		const finalRow = parseApprovalRow(finalRaw);
+
+		// Fail closed: if what we persisted/read does not match the expected terminal state,
+		// surface an error rather than reporting success -- the row will never be re-executed.
+		if (finalRow.status !== terminalStatus) {
+			throw new Error(`Approval ${row.id} did not reach expected terminal state "${terminalStatus}"`);
+		}
+
+		return this.#toReview(finalRow);
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -677,47 +686,112 @@ export class McpApprovalsService {
 	 * Run the tool for an already-claimed approval exactly once and persist the terminal
 	 * status. Every status update is scoped to the row's execution lock, so a stale-claim
 	 * recovery that fired concurrently cannot be overwritten by a late completion.
+	 *
+	 * Failure handling is fail-closed:
+	 * - executor throws: try to persist "failed" (never retried); if that update also fails,
+	 *   the row stays locked in "executing" until the TTL recovery marks it failed -- the
+	 *   tool itself is NEVER invoked a second time.
+	 * - terminal-status persistence itself fails: same rule -- do not re-run, surface the
+	 *   error, rely on TTL recovery.
 	 */
-	async #runClaimed(row: ApprovalRow, accountability: Accountability, execute: ApprovalExecutor): Promise<void> {
+	async #runClaimed(
+		row: ApprovalRow,
+		accountability: Accountability,
+		execute: ApprovalExecutor,
+	): Promise<ApprovalStatus> {
 		const lockToken = row.execution_lock!;
 
+		let executionError: Error | null = null;
+		let result: unknown = undefined;
+
 		try {
-			const result = await execute({
+			result = await execute({
 				name: row.tool,
 				args: row.input,
 				accountability,
 				schema: this.schema,
 			});
-
-			await this.knex(APPROVALS_TABLE)
-				.where('id', row.id)
-				.where('execution_lock', lockToken)
-				.where('status', 'executing')
-				.update({
-					status: 'completed',
-					result: JSON.stringify(result ?? null),
-					completed_at: new Date(),
-					execution_lock: null,
-				});
-
-			useLogger().info({ approval: row.id, tool: row.tool }, 'MCP tool approval executed');
 		} catch (error) {
-			const message = error instanceof Error ? error.message : 'Tool execution failed';
-
-			// Terminal failure, never retried: a partially-applied write must not be issued
-			// a second time.
-			await this.knex(APPROVALS_TABLE)
-				.where('id', row.id)
-				.where('execution_lock', lockToken)
-				.where('status', 'executing')
-				.update({
-					status: 'failed',
-					error: message,
-					completed_at: new Date(),
-					execution_lock: null,
-				});
-
+			executionError = error instanceof Error ? error : new Error('Tool execution failed');
 			useLogger().error({ approval: row.id, err: error }, 'MCP approved tool execution failed');
+		}
+
+		if (executionError) {
+			const persisted = await this.#persistTerminal(row.id, lockToken, {
+				status: 'failed',
+				error: executionError.message,
+				completed_at: new Date(),
+				execution_lock: null,
+			});
+
+			if (!persisted) {
+				// The failure record could not be written. Fail closed: leave the row locked in
+				// "executing" (TTL recovery resolves it) and surface the error; never re-run.
+				throw new Error(`Failed to persist terminal status for approval ${row.id}: ${executionError.message}`);
+			}
+
+			return 'failed';
+		}
+
+		const completed = await this.#persistTerminal(row.id, lockToken, {
+			status: 'completed',
+			result: JSON.stringify(result ?? null),
+			completed_at: new Date(),
+			execution_lock: null,
+		});
+
+		if (!completed) {
+			// The tool already ran (possibly with side effects) but the outcome could not be
+			// recorded. At-most-once wins: throw, do not re-run; TTL recovery marks it failed.
+			throw new Error(`Failed to persist completed status for approval ${row.id}`);
+		}
+
+		useLogger().info({ approval: row.id, tool: row.tool }, 'MCP tool approval executed');
+
+		return 'completed';
+	}
+
+	/**
+	 * Write a terminal status under the row's execution lock. Returns true when this call
+	 * moved the "executing" row to its terminal state, false when the update did not apply
+	 * (database failure or the row was recovered by another worker). The fallback records
+	 * `failed` so a persistence outage still resolves to a terminal, non-replayable state.
+	 */
+	async #persistTerminal(id: string, lockToken: string, payload: Record<string, unknown>): Promise<boolean> {
+		try {
+			const affected = updateCount(
+				await this.knex(APPROVALS_TABLE)
+					.where('id', id)
+					.where('execution_lock', lockToken)
+					.where('status', 'executing')
+					.update(payload),
+			);
+
+			if (affected > 0) return true;
+
+			// The conditional update matched nothing. Two cases:
+			// 1) stale-claim recovery already resolved it -- nothing to do;
+			// 2) lock/status mismatch for another reason -- treat as persistence failure.
+			const current = await this.knex(APPROVALS_TABLE)
+				.select(['id', 'status', 'execution_lock'])
+				.where('id', id)
+				.first();
+
+			const currentRow = current as { status: string; execution_lock: string | null } | undefined;
+
+			if (currentRow && currentRow.status !== 'executing') {
+				// Already terminal (e.g. recovered). Respect that and do not overwrite.
+				return true;
+			}
+
+			return false;
+		} catch (error) {
+			useLogger().error(
+				{ approval: id, err: error },
+				'MCP approval terminal-status persistence failed; row will be recovered by TTL',
+			);
+
+			return false;
 		}
 	}
 
@@ -802,6 +876,7 @@ export class McpApprovalsService {
 	#ttlMs(timeoutMinutes: number): number {
 		const minutes =
 			Number.isFinite(timeoutMinutes) && timeoutMinutes > 0 ? timeoutMinutes : DEFAULT_PENDING_TTL_MINUTES;
+
 		return minutes * 60 * 1000;
 	}
 

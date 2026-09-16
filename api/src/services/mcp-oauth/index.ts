@@ -1333,13 +1333,20 @@ export class McpOAuthService {
 		const userId = grant['user'] as string;
 		const clientName = client['client_name'] as string;
 
-		// 5. Delete grant + session atomically. Pending MCP tool approvals for this grant
-		// are neutralized separately: the approval center re-checks grant existence when an
-		// approval is viewed/executed and the cleanup job cancels orphaned pending rows, so
-		// a revoked token can never result in an executed write.
+		// 5. Delete grant + session atomically and immediately cancel the grant's pending MCP
+		// tool approvals, so the approval queue and agent status polling show "cancelled"
+		// without waiting for the orphan cleanup schedule -- and approve can never execute.
 		await transaction(this.knex, async (trx) => {
 			await trx('directus_oauth_tokens').where('id', grantId).delete();
 			await trx('directus_sessions').where('token', tokenHash).delete();
+
+			await trx('directus_mcp_approvals')
+				.where({ oauth_client: params.client_id, user: userId, status: 'pending' })
+				.update({
+					status: 'cancelled',
+					completed_at: new Date(),
+					error: 'OAuth grant revoked before approval',
+				});
 		});
 
 		// 6. Activity record
@@ -1992,6 +1999,15 @@ export class McpOAuthService {
 				.where({ token: reuseGrant['session'], user: reuseGrant['user'], oauth_client: clientId })
 				.delete();
 
+			// Immediately cancel pending MCP tool approvals for the revoked grant.
+			await db('directus_mcp_approvals')
+				.where({ oauth_client: clientId, user: reuseGrant['user'] as string, status: 'pending' })
+				.update({
+					status: 'cancelled',
+					completed_at: new Date(),
+					error: 'OAuth grant revoked after refresh-token reuse',
+				});
+
 			logger.warn({ client_id: clientId, grant_id: reuseGrant['id'] }, 'Refresh token reuse detected, grant revoked');
 		}
 	}
@@ -2003,6 +2019,15 @@ export class McpOAuthService {
 		if (replayGrant) {
 			await db('directus_oauth_tokens').where('id', replayGrant['id']).delete();
 			await db('directus_sessions').where('token', replayGrant['session']).delete();
+
+			// Immediately cancel pending MCP tool approvals for the replayed grant.
+			await db('directus_mcp_approvals')
+				.where({ oauth_client: clientId, user: replayGrant['user'] as string, status: 'pending' })
+				.update({
+					status: 'cancelled',
+					completed_at: new Date(),
+					error: 'OAuth grant revoked after authorization-code replay',
+				});
 		}
 	}
 

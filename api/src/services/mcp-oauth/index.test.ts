@@ -1913,6 +1913,7 @@ describe('McpOAuthService', () => {
 					{
 						id: 'winner-grant',
 						client: clientId,
+						user: userId,
 						session: 'winner-session-hash',
 						code_hash: codeHash,
 					},
@@ -1920,6 +1921,8 @@ describe('McpOAuthService', () => {
 
 				tracker.on.delete('directus_oauth_tokens').response(1);
 				tracker.on.delete('directus_sessions').response(1);
+				// Pending MCP approvals for the replayed grant are cancelled directly.
+				tracker.on.update('directus_mcp_approvals').response(1);
 
 				await assertOAuthError(
 					() => service.exchangeCode(validParams(makeAuthParams(clientId, clientSecret)), context),
@@ -1929,6 +1932,13 @@ describe('McpOAuthService', () => {
 				expect(queryHistory('select', 'directus_oauth_tokens')).toHaveLength(1);
 				expect(queryHistory('delete', 'directus_oauth_tokens')).toHaveLength(1);
 				expect(queryHistory('delete', 'directus_sessions')).toHaveLength(1);
+
+				const cancelUpdates = tracker.history.update.filter((q: any) => q.sql.includes('directus_mcp_approvals'));
+
+				expect(cancelUpdates).toHaveLength(1);
+				expect(String(cancelUpdates[0]!.bindings)).toContain('cancelled');
+				expect(String(cancelUpdates[0]!.bindings)).toContain(clientId);
+				expect(String(cancelUpdates[0]!.bindings)).toContain(userId);
 			});
 		});
 
@@ -2532,6 +2542,8 @@ describe('McpOAuthService', () => {
 			// Revoke: delete grant + session
 			tracker.on.delete('directus_oauth_tokens').response(1);
 			tracker.on.delete('directus_sessions').response(1);
+			// Pending MCP approvals for the reused grant are cancelled.
+			tracker.on.update('directus_mcp_approvals').response(1);
 
 			await assertOAuthError(() => service.refreshToken(validParams(), context), { error: 'invalid_grant' });
 		});
@@ -2553,6 +2565,8 @@ describe('McpOAuthService', () => {
 			// Revoke: delete grant + session
 			tracker.on.delete('directus_oauth_tokens').response(1);
 			tracker.on.delete('directus_sessions').response(1);
+			// Pending MCP tool approvals for the reused grant are cancelled directly.
+			tracker.on.update('directus_mcp_approvals').response(1);
 
 			await assertOAuthError(() => service.refreshToken(validParams(), context), { error: 'invalid_grant' });
 
@@ -2568,6 +2582,13 @@ describe('McpOAuthService', () => {
 			expect(sessionDeletes[0]!.bindings).toContain('new-hash');
 			expect(sessionDeletes[0]!.bindings).toContain(userId);
 			expect(sessionDeletes[0]!.bindings).toContain(clientId);
+
+			// Pending approvals for the revoked grant are cancelled.
+			const cancelUpdates = tracker.history.update.filter((q: any) => q.sql.includes('directus_mcp_approvals'));
+			expect(cancelUpdates.length).toBe(1);
+			expect(String(cancelUpdates[0]!.bindings)).toContain('cancelled');
+			expect(String(cancelUpdates[0]!.bindings)).toContain(clientId);
+			expect(String(cancelUpdates[0]!.bindings)).toContain(userId);
 		});
 
 		it('reuse detection lookup is scoped to the authenticated client', async () => {
@@ -2609,6 +2630,7 @@ describe('McpOAuthService', () => {
 
 			tracker.on.delete('directus_oauth_tokens').response(1);
 			tracker.on.delete('directus_sessions').response(1);
+			tracker.on.update('directus_mcp_approvals').response(1);
 
 			const transactionSpy = vi.spyOn(db, 'transaction');
 
@@ -2822,6 +2844,8 @@ describe('McpOAuthService', () => {
 
 		beforeEach(() => {
 			service = new McpOAuthService({ knex: db, schema });
+			// Revoking a grant cancels its pending MCP approvals in the same transaction.
+			tracker.on.update('directus_mcp_approvals').response(0);
 		});
 
 		it('valid refresh token revokes grant and session', async () => {
@@ -2831,6 +2855,8 @@ describe('McpOAuthService', () => {
 			tracker.on.delete('directus_oauth_tokens').response(1);
 			// Delete session
 			tracker.on.delete('directus_sessions').response(1);
+			// Cancel pending MCP tool approvals for the grant
+			tracker.on.update('directus_mcp_approvals').response(2);
 			// User lookup for activity
 			tracker.on.select('directus_users').response([createUserRow()]);
 
@@ -2840,6 +2866,16 @@ describe('McpOAuthService', () => {
 			expect(tokenDeletes.length).toBe(1);
 			const sessionDeletes = queryHistory('delete', 'directus_sessions');
 			expect(sessionDeletes.length).toBe(1);
+
+			// Pending MCP approvals for the grant are cancelled directly on revocation.
+			const cancelUpdates = tracker.history.update.filter((q: any) => q.sql.includes('directus_mcp_approvals'));
+
+			expect(cancelUpdates.length).toBe(1);
+			expect(cancelUpdates[0]!.sql).toMatch(/status/);
+			expect(String(cancelUpdates[0]!.bindings)).toContain('cancelled');
+			expect(String(cancelUpdates[0]!.bindings)).toContain(clientId);
+			expect(String(cancelUpdates[0]!.bindings)).toContain(userId);
+			expect(String(cancelUpdates[0]!.bindings)).toContain('pending');
 		});
 
 		it('client_id mismatch returns 200 (not invalid_client)', async () => {
@@ -2975,6 +3011,8 @@ describe('McpOAuthService', () => {
 
 		beforeEach(() => {
 			service = new McpOAuthService({ knex: db, schema });
+			// Revoking a grant cancels its pending MCP approvals in the same transaction.
+			tracker.on.update('directus_mcp_approvals').response(0);
 		});
 
 		describe.each(confidentialMethods)('$label', ({ method, makeAuthParams }) => {

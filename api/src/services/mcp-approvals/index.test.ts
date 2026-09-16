@@ -166,9 +166,9 @@ describe('Services / McpApprovalsService', () => {
 		it('reuses an in-flight approval for an identical request instead of inserting again', async () => {
 			tracker.on.select('directus_mcp_approval_policies').response([policy]);
 
-			tracker.on.select('directus_mcp_approvals').response([
-				makeApprovalRow({ input: JSON.stringify(writeArgs), input_preview: JSON.stringify(writeArgs) }),
-			]);
+			tracker.on
+				.select('directus_mcp_approvals')
+				.response([makeApprovalRow({ input: JSON.stringify(writeArgs), input_preview: JSON.stringify(writeArgs) })]);
 
 			const service = new McpApprovalsService({ knex: db, accountability: agent, schema });
 			const result = await service.gateCall({ accountability: agent, tool: 'items', args: writeArgs, isWrite: true });
@@ -180,9 +180,9 @@ describe('Services / McpApprovalsService', () => {
 		it('returns the completed approval on replay -- it can never execute twice', async () => {
 			tracker.on.select('directus_mcp_approval_policies').response([policy]);
 
-			tracker.on.select('directus_mcp_approvals').response([
-				makeApprovalRow({ status: 'completed', result: JSON.stringify({ id: 'x' }) }),
-			]);
+			tracker.on
+				.select('directus_mcp_approvals')
+				.response([makeApprovalRow({ status: 'completed', result: JSON.stringify({ id: 'x' }) })]);
 
 			const service = new McpApprovalsService({ knex: db, accountability: agent, schema });
 			const result = await service.gateCall({ accountability: agent, tool: 'items', args: writeArgs, isWrite: true });
@@ -207,6 +207,24 @@ describe('Services / McpApprovalsService', () => {
 			expect(updates.length).toBeGreaterThan(0);
 			expect(tracker.history.insert.filter((q) => q.sql.includes('directus_mcp_approvals'))).toHaveLength(0);
 		});
+
+		it('fails closed when the pending approval cannot be inserted -- the write is blocked', async () => {
+			tracker.on.select('directus_mcp_approval_policies').response([policy]);
+			tracker.on.select('directus_mcp_approvals').response([]);
+			tracker.on.insert('directus_mcp_approvals').simulateError(new Error('connection lost'));
+
+			const service = new McpApprovalsService({ knex: db, accountability: agent, schema });
+
+			// A database failure creating the approval must reject: callers never proceed to run
+			// the write on an unrecorded approval.
+			await expect(
+				service.gateCall({ accountability: agent, tool: 'items', args: writeArgs, isWrite: true }),
+			).rejects.toThrow();
+
+			// Exactly one insert attempt -- no retry loop.
+			const inserts = tracker.history.insert.filter((q) => q.sql.includes('directus_mcp_approvals'));
+			expect(inserts).toHaveLength(1);
+		});
 	});
 
 	describe('getForAgent', () => {
@@ -220,9 +238,7 @@ describe('Services / McpApprovalsService', () => {
 		it('expires a due pending row lazily on poll', async () => {
 			tracker.on
 				.select('directus_mcp_approvals')
-				.response([
-					makeApprovalRow({ status: 'pending', expires_at: new Date(Date.now() - 1000).toISOString() }),
-				]);
+				.response([makeApprovalRow({ status: 'pending', expires_at: new Date(Date.now() - 1000).toISOString() })]);
 
 			tracker.on.update('directus_mcp_approvals').response(1);
 
@@ -234,9 +250,9 @@ describe('Services / McpApprovalsService', () => {
 		});
 
 		it('never returns the canonical input', async () => {
-			tracker.on.select('directus_mcp_approvals').response([
-				makeApprovalRow({ status: 'completed', result: JSON.stringify({ ok: true }) }),
-			]);
+			tracker.on
+				.select('directus_mcp_approvals')
+				.response([makeApprovalRow({ status: 'completed', result: JSON.stringify({ ok: true }) })]);
 
 			const service = new McpApprovalsService({ knex: db, accountability: agent, schema });
 			const status = await service.getForAgent('approval-1', agent);
@@ -331,9 +347,9 @@ describe('Services / McpApprovalsService', () => {
 
 			const service = new McpApprovalsService({ knex: db, accountability: { ...reviewer, admin: true }, schema });
 
-			await expect(
-				service.review('approval-1', 'approve', { execute: vi.fn() }),
-			).rejects.toBeInstanceOf(InvalidPayloadError);
+			await expect(service.review('approval-1', 'approve', { execute: vi.fn() })).rejects.toBeInstanceOf(
+				InvalidPayloadError,
+			);
 		});
 
 		it('requires the reviewer to hold the target permission; a forbidden reviewer cannot approve', async () => {
@@ -342,9 +358,9 @@ describe('Services / McpApprovalsService', () => {
 
 			const service = new McpApprovalsService({ knex: db, accountability: reviewer, schema });
 
-			await expect(
-				service.review('approval-1', 'approve', { execute: vi.fn() }),
-			).rejects.toBeInstanceOf(ForbiddenError);
+			await expect(service.review('approval-1', 'approve', { execute: vi.fn() })).rejects.toBeInstanceOf(
+				ForbiddenError,
+			);
 
 			expect(mockValidateAccess).toHaveBeenCalledWith(
 				expect.objectContaining({ action: 'create', collection: 'articles' }),
@@ -411,6 +427,87 @@ describe('Services / McpApprovalsService', () => {
 
 			expect(executor).not.toHaveBeenCalled();
 			expect(result.status).toBe('cancelled');
+		});
+
+		it('fails closed when the claim UPDATE fails -- executor never runs and no retry happens', async () => {
+			setupApproval(makeApprovalRow({ input: JSON.stringify(writeArgs), input_preview: JSON.stringify(writeArgs) }));
+			// The claim transaction blows up (deadlock / connection loss): the update rejects,
+			// rolling the transaction back so the row stays pending.
+			tracker.on.update('directus_mcp_approvals').simulateError(new Error('deadlock detected'));
+
+			const executor = vi.fn();
+			const service = new McpApprovalsService({ knex: db, accountability: { ...reviewer, admin: true }, schema });
+
+			await expect(service.review('approval-1', 'approve', { execute: executor })).rejects.toThrow();
+
+			expect(executor).not.toHaveBeenCalled();
+			// The claim attempt is single-shot: no automatic retry.
+			const claimUpdates = tracker.history.update.filter((q) => q.sql.includes('directus_mcp_approvals'));
+			expect(claimUpdates).toHaveLength(1);
+			expect(claimUpdates[0]!.bindings).toContain('executing');
+		});
+
+		it('completed persistence failure leaves the tool un-re-run: fail closed, TTL recovery applies', async () => {
+			setupApproval(makeApprovalRow({ input: JSON.stringify(writeArgs), input_preview: JSON.stringify(writeArgs) }));
+			tracker.on.select('directus_users').response([{ id: 'user-1', role: 'role-1', status: 'active' }]);
+			tracker.on.select('directus_oauth_tokens').response([{ id: 'grant-1' }]);
+
+			// Handlers match in registration order: first UPDATE (the claim) succeeds,
+			// the second (completed persistence) fails once and is removed.
+			tracker.on.update('directus_mcp_approvals').response(1);
+			tracker.on.update('directus_mcp_approvals').simulateErrorOnce(new Error('write unavailable'));
+
+			// Post-execution read returns the still-locked row.
+			tracker.on
+				.select('directus_mcp_approvals')
+				.response([makeApprovalRow({ status: 'executing', execution_lock: 'lock-1' })]);
+
+			const executor = vi.fn().mockResolvedValue({ id: 'new-item' });
+			const service = new McpApprovalsService({ knex: db, accountability: { ...reviewer, admin: true }, schema });
+
+			await expect(service.review('approval-1', 'approve', { execute: executor })).rejects.toThrow();
+
+			// The write ran exactly once and is never retried despite the persistence outage.
+			expect(executor).toHaveBeenCalledTimes(1);
+			// claim + failed completed persistence
+			expect(tracker.history.update.filter((q) => q.sql.includes('directus_mcp_approvals'))).toHaveLength(2);
+		});
+
+		it('failed tool + failed failure persistence: never retried, error surfaces for TTL recovery', async () => {
+			setupApproval(makeApprovalRow({ input: JSON.stringify(writeArgs), input_preview: JSON.stringify(writeArgs) }));
+			tracker.on.select('directus_users').response([{ id: 'user-1', role: 'role-1', status: 'active' }]);
+			tracker.on.select('directus_oauth_tokens').response([{ id: 'grant-1' }]);
+
+			tracker.on.update('directus_mcp_approvals').response(1);
+			tracker.on.update('directus_mcp_approvals').simulateErrorOnce(new Error('write unavailable'));
+
+			const executor = vi.fn().mockRejectedValue(new Error('tool boom'));
+			const service = new McpApprovalsService({ knex: db, accountability: { ...reviewer, admin: true }, schema });
+
+			// Fail closed: the failure record itself could not be persisted, so review rejects
+			// (the row is left for TTL recovery) rather than reporting success.
+			await expect(service.review('approval-1', 'approve', { execute: executor })).rejects.toThrow(
+				/expected terminal state|Failed to persist terminal status/,
+			);
+
+			expect(executor).toHaveBeenCalledTimes(1);
+			expect(tracker.history.update.filter((q) => q.sql.includes('directus_mcp_approvals'))).toHaveLength(2);
+		});
+
+		it('a row cancelled after claim (concurrent revocation) does not execute', async () => {
+			// Row reads as pending; claim update applies to zero rows because a concurrent
+			// revocation cancelled it first.
+			setupApproval(makeApprovalRow({ input: JSON.stringify(writeArgs), input_preview: JSON.stringify(writeArgs) }));
+
+			tracker.on.update('directus_mcp_approvals').response(0);
+
+			const executor = vi.fn();
+			const service = new McpApprovalsService({ knex: db, accountability: { ...reviewer, admin: true }, schema });
+
+			const result = await service.review('approval-1', 'approve', { execute: executor });
+
+			expect(executor).not.toHaveBeenCalled();
+			expect(result.status).toBe('pending');
 		});
 	});
 
@@ -521,9 +618,7 @@ describe('Services / McpApprovalsService', () => {
 		it('agent polling a pending row with a revoked grant sees cancelled and cannot execute', async () => {
 			tracker.on
 				.select('directus_mcp_approvals')
-				.response([
-					makeApprovalRow({ status: 'pending', expires_at: new Date(Date.now() + 60_000).toISOString() }),
-				]);
+				.response([makeApprovalRow({ status: 'pending', expires_at: new Date(Date.now() + 60_000).toISOString() })]);
 
 			tracker.on.select('directus_oauth_tokens').response([]);
 			tracker.on.update('directus_mcp_approvals').response(1);
@@ -532,6 +627,60 @@ describe('Services / McpApprovalsService', () => {
 			const status = await service.getForAgent('approval-1', agent);
 
 			expect(status.status).toBe('cancelled');
+		});
+
+		it('cancelForGrant directly cancels pending rows scoped to the revoked client+user', async () => {
+			tracker.on.update('directus_mcp_approvals').response(3);
+
+			const service = new McpApprovalsService({ knex: db, accountability: agent, schema });
+			const count = await service.cancelForGrant('client-a', 'user-1');
+
+			expect(count).toBe(3);
+
+			const update = tracker.history.update.find((q) => q.sql.includes('directus_mcp_approvals'))!;
+			expect(update.bindings).toContain('cancelled');
+			expect(update.bindings).toContain('client-a');
+			expect(update.bindings).toContain('user-1');
+			expect(update.bindings).toContain('pending');
+		});
+
+		it('a row already cancelled by revocation returns without executing on review', async () => {
+			// OAuth revocation flipped the row to cancelled before the reviewer clicked approve.
+			tracker.on.select('directus_mcp_approvals').response([makeApprovalRow({ status: 'cancelled' })]);
+
+			const executor = vi.fn();
+
+			const service = new McpApprovalsService({
+				knex: db,
+				accountability: { ...reviewer, admin: true },
+				schema,
+			});
+
+			const result = await service.review('approval-1', 'approve', { execute: executor });
+
+			expect(executor).not.toHaveBeenCalled();
+			expect(result.status).toBe('cancelled');
+		});
+
+		it('the review queue surfaces cancellations performed by the revocation path', async () => {
+			// No orphan-cancellation join needed (revocation already cancelled directly);
+			// the queue read returns the cancelled row.
+			tracker.on
+				.select('directus_mcp_approvals')
+				.response([makeApprovalRow({ status: 'cancelled', error: 'OAuth grant revoked before approval' })]);
+
+			tracker.on.select('directus_oauth_tokens').response([{ id: 'grant-1' }]);
+
+			const service = new McpApprovalsService({
+				knex: db,
+				accountability: { ...reviewer, admin: true },
+				schema,
+			});
+
+			const rows = await service.listForReview({ status: 'cancelled' });
+
+			expect(rows).toHaveLength(1);
+			expect(rows[0]!.status).toBe('cancelled');
 		});
 	});
 });

@@ -105,6 +105,7 @@ export function findMatchingPolicy<Policy extends ApprovalPolicyScope>(
 /** Keys whose values are always masked in the approval preview shown to reviewers. */
 const SENSITIVE_KEY_PATTERN =
 	/(password|passwd|secret|token|api[_-]?key|private[_-]?key|authorization|cookie|session)/i;
+
 const MASKED_VALUE = '********';
 
 export type MaskResult = {
