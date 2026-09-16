@@ -5,6 +5,7 @@ import {
 	ActivityService,
 	CommentsService,
 	DashboardsService,
+	DeploymentImpactReportsService,
 	DeploymentProjectsService,
 	DeploymentRunsService,
 	DeploymentService,
@@ -79,6 +80,8 @@ export function getService(collection: string, opts: AbstractServiceOptions): It
 			return new DeploymentProjectsService(opts);
 		case 'directus_deployment_runs':
 			return new DeploymentRunsService(opts);
+		case 'directus_deployment_impact_reports':
+			return new DeploymentImpactReportsService(opts);
 		default:
 			// Deny usage of other system collections via ItemsService
 			if (collection.startsWith('directus_')) throw new ForbiddenError();

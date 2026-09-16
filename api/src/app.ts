@@ -23,6 +23,7 @@ import authRouter from './controllers/auth.js';
 import collectionsRouter from './controllers/collections.js';
 import commentsRouter from './controllers/comments.js';
 import dashboardsRouter from './controllers/dashboards.js';
+import deploymentImpactReportsRouter from './controllers/deployment-impact-reports.js';
 import deploymentWebhookRouter from './controllers/deployment-webhooks.js';
 import deploymentRouter from './controllers/deployment.js';
 import extensionsRouter from './controllers/extensions.js';
@@ -62,7 +63,7 @@ import {
 	validateDatabaseExtensions,
 	validateMigrations,
 } from './database/index.js';
-import { ensureDeploymentWebhooks, registerDeploymentDrivers } from './deployment.js';
+import { ensureDeploymentWebhooks, registerDeploymentDrivers, resumeDeploymentImpactReports } from './deployment.js';
 import emitter from './emitter.js';
 import { getExtensionManager } from './extensions/index.js';
 import { getFlowManager } from './flows.js';
@@ -139,6 +140,7 @@ export default async function createApp(): Promise<express.Application> {
 
 	await registerAuthProviders();
 	registerDeploymentDrivers();
+	await resumeDeploymentImpactReports();
 	await ensureDeploymentWebhooks();
 
 	const extensionManager = getExtensionManager();
@@ -354,6 +356,7 @@ export default async function createApp(): Promise<express.Application> {
 	app.use('/collections', collectionsRouter);
 	app.use('/comments', commentsRouter);
 	app.use('/dashboards', dashboardsRouter);
+	app.use('/deployments/impact-reports', deploymentImpactReportsRouter);
 	app.use('/deployments', deploymentRouter);
 	app.use('/extensions', extensionsRouter);
 	app.use('/fields', fieldsRouter);

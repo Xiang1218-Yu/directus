@@ -5,7 +5,9 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import DeploymentStatus from '../../components/deployment-status.vue';
+import ImpactReportPanel from '../../components/impact-report-panel.vue';
 import DeploymentNavigation from '../../components/navigation.vue';
+import { useDeploymentNavigation } from '../../composables/use-deployment-navigation';
 import VIcon from '@/components/v-icon/v-icon.vue';
 import VInfo from '@/components/v-info.vue';
 import VListItemContent from '@/components/v-list-item-content.vue';
@@ -26,6 +28,9 @@ const props = defineProps<{
 
 const { t } = useI18n();
 const router = useRouter();
+const { providers } = useDeploymentNavigation();
+
+const deploymentId = computed(() => providers.value.find((provider) => provider.provider === props.provider)?.id);
 
 const loading = ref(true);
 const projects = ref<Project[]>([]);
@@ -78,6 +83,13 @@ watch(range, loadDashboard);
 		<VProgressCircular v-if="loading" class="spinner" indeterminate />
 
 		<div v-else class="container">
+			<ImpactReportPanel
+				v-if="deploymentId"
+				:provider="provider"
+				:deployment-id="deploymentId"
+				:provider-configured="!!deploymentId"
+			/>
+
 			<VInfo v-if="projects.length === 0" icon="folder_off" :title="$t('deployment.no_projects')" center>
 				{{ $t('deployment.no_projects_copy') }}
 			</VInfo>

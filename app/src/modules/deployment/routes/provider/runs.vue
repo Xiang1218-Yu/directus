@@ -9,6 +9,7 @@ import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import DeploymentStatus from '../../components/deployment-status.vue';
+import ImpactReportPanel from '../../components/impact-report-panel.vue';
 import DeploymentNavigation from '../../components/navigation.vue';
 import { useDeploymentNavigation } from '../../composables/use-deployment-navigation';
 import api from '@/api';
@@ -59,6 +60,7 @@ const stats = ref<DeploymentRunStatsOutput>({
 });
 
 const statsRange = ref('7d');
+const selectedImpactReportId = ref<string | null>(null);
 
 const rangeOptions = [
 	{ text: t('deployment.range.1d'), value: '1d' },
@@ -183,9 +185,13 @@ async function deploy(preview = false) {
 	deploying.value = true;
 
 	try {
-		const result = await sdk.request(
-			triggerDeployment(props.provider, props.projectId, preview ? { preview: true } : undefined),
-		);
+		const options: Parameters<typeof triggerDeployment>[2] = selectedImpactReportId.value
+			? { impact_report: selectedImpactReportId.value }
+			: {};
+
+		if (preview) options.preview = true;
+
+		const result = await sdk.request(triggerDeployment(props.provider, props.projectId, options));
 
 		router.push({
 			name: 'deployments-provider-run',
@@ -254,6 +260,12 @@ watch(statsRange, loadStats);
 		<VProgressCircular v-if="loading" class="spinner" indeterminate />
 
 		<div v-else class="container">
+			<ImpactReportPanel
+				:provider="provider"
+				:project-id="projectId"
+				@select="selectedImpactReportId = $event"
+			/>
+
 			<VSelect v-model="statsRange" :items="rangeOptions" inline label class="range-select" />
 
 			<div class="stats-bar">

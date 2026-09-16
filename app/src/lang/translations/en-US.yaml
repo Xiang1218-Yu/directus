@@ -1280,6 +1280,36 @@ deployment:
     total_deployments: 'Deployment: {count} | Deployments: {count}'
     average_build_time: 'Avg Build Time: {value}'
     success_rate: 'Success Rate: {value}%'
+  impact_report:
+    title: Pre-deployment Impact Report
+    description: Review schema, content, permissions, and pending migration changes before deploying.
+    generate: Generate Report
+    empty: No Impact Report
+    empty_copy: Upload a schema snapshot to generate a pre-deployment impact report.
+    provider_unconfigured: Provider Not Configured
+    provider_unconfigured_copy: Configure a deployment provider before generating and reviewing impact reports.
+    generating: Report is being generated. This page will refresh automatically.
+    no_changes: No Changes
+    no_changes_copy: The snapshot matches the current environment schema.
+    collections: Collections
+    fields: Fields
+    records: Affected Records
+    migrations: Pending Migrations
+    permissions: Permission Changes
+    restricted: Restricted
+    retry: Retry
+    failed_copy: Report generation failed.
+    expired_copy: This report has expired and should be regenerated.
+    action:
+      create: Added
+      update: Changed
+      delete: Removed
+    status:
+      pending: Queued
+      processing: Generating
+      completed: Completed
+      failed: Failed
+      expired: Expired
   range:
     1d: Last 24 Hours
     7d: Last 7 Days

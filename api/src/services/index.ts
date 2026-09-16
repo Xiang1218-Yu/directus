@@ -11,6 +11,7 @@ export * from './files.js';
 export * from './flows.js';
 export * from './folders.js';
 export * from './deployment.js';
+export * from './deployment-impact-reports.js';
 export * from './deployment-projects.js';
 export * from './deployment-runs.js';
 export * from './graphql/index.js';

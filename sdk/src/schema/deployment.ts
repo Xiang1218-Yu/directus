@@ -60,3 +60,29 @@ export type DirectusDeploymentRun<Schema = any> = MergeCoreCollection<
 		logs?: { timestamp: Date | string; type: 'stdout' | 'stderr' | 'info'; message: string }[];
 	}
 >;
+
+/**
+ * Directus Deployment Impact Report
+ */
+export type DirectusDeploymentImpactReport<Schema = any> = MergeCoreCollection<
+	Schema,
+	'directus_deployment_impact_reports',
+	{
+		id: string;
+		deployment: DirectusDeployment<Schema> | string | null;
+		deployment_project: DirectusDeploymentProject<Schema> | string | null;
+		deployment_run: DirectusDeploymentRun<Schema> | string | null;
+		status: 'pending' | 'processing' | 'completed' | 'failed' | 'expired';
+		attempts: number;
+		requested_snapshot: Record<string, any> | null;
+		requested_permissions: Record<string, any>[] | null;
+		result: Record<string, any> | null;
+		error: string | null;
+		expires_at: 'datetime' | null;
+		started_at: 'datetime' | null;
+		completed_at: 'datetime' | null;
+		date_created: 'datetime' | null;
+		date_updated: 'datetime' | null;
+		user_created: DirectusUser<Schema> | string | null;
+	}
+>;

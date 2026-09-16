@@ -277,6 +277,25 @@ data:
     many_field: user_created
     one_collection: directus_users
 
+  - many_collection: directus_deployment_impact_reports
+    many_field: deployment
+    one_collection: directus_deployments
+    one_deselect_action: nullify
+
+  - many_collection: directus_deployment_impact_reports
+    many_field: deployment_project
+    one_collection: directus_deployment_projects
+    one_deselect_action: nullify
+
+  - many_collection: directus_deployment_impact_reports
+    many_field: deployment_run
+    one_collection: directus_deployment_runs
+    one_deselect_action: nullify
+
+  - many_collection: directus_deployment_impact_reports
+    many_field: user_created
+    one_collection: directus_users
+
   ### OAuth
   - many_collection: directus_oauth_codes
     many_field: client

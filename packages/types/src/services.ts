@@ -9,7 +9,13 @@ import type { Accountability } from './accountability.js';
 import type { TransformationSet } from './assets.js';
 import type { LoginResult } from './authentication.js';
 import type { ApiCollection, RawCollection } from './collection.js';
-import type { DeploymentConfig, Project, ProviderType, StoredProject } from './deployment.js';
+import type {
+	DeploymentConfig,
+	DeploymentImpactReport,
+	Project,
+	ProviderType,
+	StoredProject,
+} from './deployment.js';
 import type { ActionHandler } from './events.js';
 import type { ExportFormat } from './export.js';
 import type { ApiOutput, ExtensionManager, ExtensionSettings } from './extensions/index.js';
@@ -488,6 +494,20 @@ interface DeploymentProjectsService {
 }
 
 /**
+ * The DeploymentImpactReportsService
+ */
+interface DeploymentImpactReportsService {
+	createReport(input: {
+		snapshot: unknown;
+		permissions?: unknown[];
+		deploymentRun?: PrimaryKey;
+		deploymentProject?: PrimaryKey;
+		deployment?: PrimaryKey;
+	}): Promise<DeploymentImpactReport>;
+	retry(key: PrimaryKey): Promise<DeploymentImpactReport>;
+}
+
+/**
  * The UsersService
  */
 interface UsersService {
@@ -667,6 +687,10 @@ export interface ExtensionsServices {
 	 * The DeploymentRunsService
 	 */
 	DeploymentRunsService: new (options: AbstractServiceOptions) => AbstractService;
+	/**
+	 * The DeploymentImpactReportsService
+	 */
+	DeploymentImpactReportsService: new (options: AbstractServiceOptions) => AbstractService & DeploymentImpactReportsService;
 	/**
 	 * The ExportService
 	 */

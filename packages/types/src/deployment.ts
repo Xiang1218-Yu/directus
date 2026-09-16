@@ -1,3 +1,6 @@
+import type { Permission } from './permissions.js';
+import type { Snapshot } from './snapshot.js';
+
 /**
  * Supported deployment provider types
  */
@@ -158,4 +161,63 @@ export interface StoredRun {
 	url: string | null;
 	started_at: string | null;
 	completed_at: string | null;
+}
+
+export type DeploymentImpactReportStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'expired';
+
+export interface DeploymentImpactCollectionStats {
+	collection: string;
+	action: 'create' | 'update' | 'delete';
+	record_count?: number;
+	accessible: boolean;
+	sensitive_fields?: string[];
+}
+
+export interface DeploymentImpactPermissionChange {
+	collection: string;
+	action: string;
+	change: 'added' | 'updated' | 'removed';
+	fields?: string[];
+}
+
+export interface DeploymentImpactMigration {
+	version: string;
+	name: string;
+}
+
+export interface DeploymentImpactReportResult {
+	has_changes?: boolean;
+	summary: {
+		collections: number;
+		fields: number;
+		relations: number;
+		permissions: number;
+		pending_migrations: number;
+		affected_records?: number;
+		sensitive_fields?: number;
+	};
+	collections: DeploymentImpactCollectionStats[];
+	fields: Array<{ collection: string; field: string; action: 'create' | 'update' | 'delete'; sensitive?: boolean }>;
+	permissions: DeploymentImpactPermissionChange[];
+	pending_migrations: DeploymentImpactMigration[];
+	diff?: unknown;
+}
+
+export interface DeploymentImpactReport {
+	id: string;
+	deployment: string | null;
+	deployment_project: string | null;
+	deployment_run: string | null;
+	status: DeploymentImpactReportStatus;
+	attempts: number;
+	requested_snapshot: Snapshot | null;
+	requested_permissions: Permission[] | null;
+	result: DeploymentImpactReportResult | null;
+	error: string | null;
+	expires_at: string | null;
+	started_at: string | null;
+	completed_at: string | null;
+	date_created: string;
+	date_updated: string | null;
+	user_created: string | null;
 }

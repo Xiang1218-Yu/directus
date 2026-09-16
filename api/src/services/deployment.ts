@@ -19,6 +19,7 @@ import { getDeploymentDriver } from '../deployment.js';
 import { useLogger } from '../logger/index.js';
 import { getMilliseconds } from '../utils/get-milliseconds.js';
 import { parseValue } from '../utils/parse-value.js';
+import { DeploymentImpactReportsService } from './deployment-impact-reports.js';
 import type { DeploymentProject } from './deployment-projects.js';
 import { DeploymentProjectsService } from './deployment-projects.js';
 import type { DeploymentRun } from './deployment-runs.js';
@@ -523,7 +524,7 @@ export class DeploymentService extends ItemsService<DeploymentConfig> {
 	async triggerDeployment(
 		provider: ProviderType,
 		projectId: string,
-		options: { preview: boolean; clearCache: boolean },
+		options: { preview: boolean; clearCache: boolean; impactReport?: PrimaryKey },
 	): Promise<DeploymentRun> {
 		const projectsService = new DeploymentProjectsService({
 			accountability: this.accountability,
@@ -536,6 +537,24 @@ export class DeploymentService extends ItemsService<DeploymentConfig> {
 		});
 
 		const project = await projectsService.readOne(projectId);
+
+		if (options.impactReport) {
+			const reportsService = new DeploymentImpactReportsService({
+				accountability: this.accountability,
+				schema: this.schema,
+			});
+
+			const report = await reportsService.readOne(options.impactReport);
+
+			if (
+				report.status !== 'completed' ||
+				(report.deployment && report.deployment !== project.deployment) ||
+				(report.deployment_project && report.deployment_project !== projectId)
+			) {
+				throw new InvalidPayloadError({ reason: 'Impact report is not ready or belongs to another deployment' });
+			}
+		}
+
 		const driver = await this.getDriver(provider);
 
 		const result = await driver.triggerDeployment(project.external_id, {
@@ -551,6 +570,15 @@ export class DeploymentService extends ItemsService<DeploymentConfig> {
 			started_at: result.created_at.toISOString(),
 			...(result.url ? { url: result.url } : {}),
 		});
+
+		if (options.impactReport) {
+			const reportsService = new DeploymentImpactReportsService({
+				accountability: this.accountability,
+				schema: this.schema,
+			});
+
+			await reportsService.associateWithRun(options.impactReport, { id: runId, project: projectId });
+		}
 
 		return runsService.readOne(runId);
 	}

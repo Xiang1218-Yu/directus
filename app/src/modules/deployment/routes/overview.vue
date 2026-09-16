@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import ImpactReportPanel from '../components/impact-report-panel.vue';
 import DeploymentNavigation from '../components/navigation.vue';
 import ProviderSetupDrawer from '../components/provider-setup-drawer.vue';
 import { useDeploymentNavigation } from '../composables/use-deployment-navigation';
@@ -26,6 +27,8 @@ const canReadRuns = permissionsStore.hasPermission('directus_deployment_runs', '
 const { providers, loading, fetch } = useDeploymentNavigation();
 
 const selectedProvider = ref<string | null>(null);
+
+const hasConfiguredProvider = computed(() => providers.value.some((provider) => !!provider.id));
 
 const setupDrawerActive = computed({
 	get: () => selectedProvider.value !== null,
@@ -89,6 +92,8 @@ function onSetupComplete() {
 		</VInfo>
 
 		<div v-else class="container">
+			<ImpactReportPanel :provider-configured="hasConfiguredProvider" />
+
 			<InterfacePresentationDivider :title="$t('deployment.overview.providers')" icon="settings" />
 
 			<VList class="providers-list">

@@ -1,8 +1,9 @@
-import type { Credentials, Options, ProviderType } from '@directus/types';
+import type { Credentials, DeploymentImpactReport, Options, ProviderType } from '@directus/types';
 import getDatabase from './database/index.js';
 import type { DeploymentDriver } from './deployment/deployment.js';
 import { NetlifyDriver, VercelDriver } from './deployment/drivers/index.js';
 import { useLogger } from './logger/index.js';
+import { DeploymentImpactReportsService } from './services/deployment-impact-reports.js';
 import { DeploymentService } from './services/deployment.js';
 import { getSchema } from './utils/get-schema.js';
 
@@ -57,6 +58,28 @@ export function isValidProviderType(provider: string): provider is ProviderType 
  */
 export function getSupportedProviderTypes(): ProviderType[] {
 	return Array.from(drivers.keys());
+}
+
+/**
+ * Resume report generation interrupted by a process restart.
+ */
+export async function resumeDeploymentImpactReports(): Promise<void> {
+	const knex = getDatabase();
+	const schema = await getSchema();
+
+	const reports = (await knex('directus_deployment_impact_reports')
+		.select('id')
+		.whereIn('status', ['pending', 'processing'])) as Pick<DeploymentImpactReport, 'id'>[];
+
+	if (reports.length === 0) return;
+
+	const service = new DeploymentImpactReportsService({ knex, schema, accountability: null });
+
+	for (const report of reports) {
+		await service.resume(report.id).catch((error) => {
+			useLogger().error(`Failed to resume deployment impact report ${report.id}: ${error}`);
+		});
+	}
 }
 
 /**

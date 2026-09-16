@@ -14,6 +14,7 @@ export interface TriggerDeploymentResult {
 export interface TriggerDeploymentOptions {
 	preview?: boolean;
 	clear_cache?: boolean;
+	impact_report?: string;
 }
 
 /**

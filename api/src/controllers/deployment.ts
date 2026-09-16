@@ -295,6 +295,7 @@ router.get(
 const triggerDeploySchema = Joi.object({
 	preview: Joi.boolean().default(false),
 	clear_cache: Joi.boolean().default(true), // Default at true (matches Vercel UI behavior)
+	impact_report: Joi.string(),
 });
 
 router.post(
@@ -321,6 +322,7 @@ router.post(
 		const run = await service.triggerDeployment(provider, projectId, {
 			preview: value.preview,
 			clearCache: value.clear_cache,
+			impactReport: value.impact_report,
 		});
 
 		res.locals['payload'] = { data: run };

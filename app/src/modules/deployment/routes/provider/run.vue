@@ -6,6 +6,7 @@ import { saveAs } from 'file-saver';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import DeploymentStatus from '../../components/deployment-status.vue';
+import ImpactReportPanel from '../../components/impact-report-panel.vue';
 import DeploymentNavigation from '../../components/navigation.vue';
 import { useDeploymentNavigation } from '../../composables/use-deployment-navigation';
 import { useProviderConfigs } from '../../config/providers';
@@ -353,6 +354,8 @@ onUnmounted(() => {
 					<span class="stat-value">{{ $t(`deployment.target_value.${run.target}`) }}</span>
 				</div>
 			</div>
+
+			<ImpactReportPanel :provider="provider" />
 
 			<div class="log-filters">
 				<div class="filter-field">
